@@ -20,7 +20,7 @@ make all
 Run the services with
 
 ```bash
-make up
+make start
 ```
 
 Stop the services with
@@ -28,3 +28,9 @@ Stop the services with
 ```bash
 make stop 
 ```
+
+# When running locally
+
+The product service will be available at [localhost:8050](http://localhost:8050)
+
+

@@ -1,12 +1,29 @@
 services:
-  product-service:
-    image: svebrant-product:latest # image built from /docker/Dockerfile.product
-    container_name: product-service
+#  product-service:
+#    image: svebrant-product:latest # image built from /docker/Dockerfile.product
+#    container_name: product-service
+#    restart: unless-stopped
+#    ports:
+#        - "8050:8050"
+#    depends_on:
+#      - mongodb-product
+#    networks:
+#      - svebrant_network
+
+  mongodb-product:
+    image: mongodb/mongodb-community-server:latest
+    container_name: mongodb-product
     restart: unless-stopped
     ports:
-        - "8050:8050"
+      - "27017:27017"
+    volumes:
+      - mongo_data_product:/data/db
     networks:
       - svebrant_network
+
+volumes:
+  mongo_data_product:
+    driver: local
 
 networks:
   svebrant_network:

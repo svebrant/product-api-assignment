@@ -1,7 +1,11 @@
 package service
 
+import com.mongodb.kotlin.client.coroutine.MongoCollection
+import com.svebrant.model.Product
+import com.svebrant.repository.ProductRepository
 import com.svebrant.service.ProductService
 import io.kotest.matchers.collections.shouldNotBeEmpty
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -13,6 +17,8 @@ import org.koin.test.inject
 
 class ProductServiceTest : KoinTest {
     val productService: ProductService by inject()
+    val repository: ProductRepository by inject()
+    private val mockCollection = mockk<MongoCollection<Product>>(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -20,7 +26,9 @@ class ProductServiceTest : KoinTest {
         startKoin {
             modules(
                 module {
-                    single { ProductService() }
+                    single { mockCollection }
+                    single { ProductService(get()) }
+                    single { ProductRepository(get()) }
                 },
             )
         }

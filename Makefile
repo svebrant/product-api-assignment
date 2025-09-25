@@ -1,4 +1,4 @@
-.PHONY: all build fmt lint build-product format-product lint-product help
+.PHONY: all build fmt lint build-product format-product lint-product start stop stop-reset help
 
 DOCKER_COMPOSE := $(shell command -v docker-compose > /dev/null 2>&1 && echo docker-compose || echo "docker compose")
 

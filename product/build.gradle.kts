@@ -5,12 +5,14 @@ val koinVersion = "4.1.1"
 val mockkVersion = "1.14.5"
 val coroutinesVersion = "1.10.2"
 val kotestVersion = "6.0.3"
+val mongodbVersion = "5.6.0"
 
 plugins {
+    application
     id("org.jlleitschuh.gradle.ktlint") version "13.1.0"
     kotlin("jvm") version "2.2.0"
     id("io.ktor.plugin") version "3.3.0"
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
+    kotlin("plugin.serialization") version "2.2.20"
 }
 
 group = "com.svebrant"
@@ -43,6 +45,12 @@ dependencies {
 
     implementation("io.insert-koin", "koin-core", koinVersion)
     implementation("io.insert-koin", "koin-ktor", koinVersion)
+
+    implementation("org.mongodb", "mongodb-driver-kotlin-coroutine", mongodbVersion)
+    implementation("org.mongodb", "mongodb-driver-kotlin-extensions", mongodbVersion)
+    implementation("org.mongodb", "bson-kotlinx", mongodbVersion)
+    implementation("org.jetbrains.kotlinx", "kotlinx-serialization-json", "1.9.0")
+    implementation("org.jetbrains.kotlinx", "kotlinx-datetime", "0.6.1")
 
     testImplementation(kotlin("test"))
     testImplementation("io.insert-koin", "koin-test", koinVersion)
