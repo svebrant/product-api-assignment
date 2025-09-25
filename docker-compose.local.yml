@@ -1,0 +1,14 @@
+services:
+  product-service:
+    image: svebrant-product:latest # image built from /docker/Dockerfile.product
+    container_name: product-service
+    restart: unless-stopped
+    ports:
+        - "8050:8050"
+    networks:
+      - svebrant_network
+
+networks:
+  svebrant_network:
+    driver: bridge
+    name: svebrant_network

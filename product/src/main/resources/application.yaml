@@ -1,0 +1,9 @@
+service:
+  name: product-service
+
+ktor:
+  application:
+    modules:
+      - com.svebrant.ApplicationKt.module
+  deployment:
+    port: 8050

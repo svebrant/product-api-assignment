@@ -1,0 +1,31 @@
+package com.svebrant
+
+import com.svebrant.configuration.configureDependencyInjection
+import com.svebrant.configuration.configureHttp
+import com.svebrant.configuration.configureRoutes
+import com.svebrant.configuration.configureSerialization
+import io.github.oshai.kotlinlogging.KotlinLogging
+import io.ktor.server.application.Application
+import java.util.TimeZone
+
+fun main(args: Array<String>) {
+    // Set to UTC
+    System.setProperty("user.timezone", "UTC")
+    TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+
+    io.ktor.server.netty.EngineMain
+        .main(args)
+}
+
+fun Application.module() {
+    val appConfig = environment.config
+    val appName = appConfig.property("service.name").getString()
+    val log = KotlinLogging.logger { }
+
+    log.info { "Starting app $appName" }
+
+    configureRoutes()
+    configureDependencyInjection()
+    configureHttp()
+    configureSerialization()
+}
