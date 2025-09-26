@@ -2,8 +2,8 @@ package service
 
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
-import com.svebrant.model.Product
 import com.svebrant.repository.ProductRepository
+import com.svebrant.repository.dto.ProductDto
 import com.svebrant.service.ProductService
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.mockk.mockk
@@ -21,7 +21,7 @@ class ProductServiceTest : KoinTest {
     val repository: ProductRepository by inject()
 
     private val mockClient = mockk<MongoClient>(relaxed = true)
-    private val mockCollection = mockk<MongoCollection<Product>>(relaxed = true)
+    private val mockCollection = mockk<MongoCollection<ProductDto>>(relaxed = true)
 
     @BeforeEach
     fun setUp() {

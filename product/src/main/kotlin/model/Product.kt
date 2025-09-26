@@ -1,15 +1,12 @@
 package com.svebrant.model
 
-import kotlinx.serialization.Contextual
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import org.bson.types.ObjectId
 
 @Serializable
 data class Product(
-    @SerialName("_id") @Contextual val id: ObjectId? = null,
+    val id: String,
     val name: String,
     val basePrice: Double,
-    val country: String,
+    val country: Country,
     val taxedPrice: Double,
 )

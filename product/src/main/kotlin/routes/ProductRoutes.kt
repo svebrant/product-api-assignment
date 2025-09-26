@@ -1,7 +1,9 @@
 package com.svebrant.routes
 
+import com.svebrant.model.Country
+import com.svebrant.model.Product
 import com.svebrant.service.ProductService
-import io.ktor.server.request.receiveText
+import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -14,6 +16,14 @@ fun Route.productRoutes() {
     val productService: ProductService by inject<ProductService>()
 
     get("/products") {
+        val params = call.request.queryParameters
+
+        if (params.get("country") != null) {
+            val country = Country.valueOf(params.get("country")!!.uppercase())
+            val products = productService.getByCountry(country)
+            return@get call.respond(products)
+        }
+
         val products = productService.getProducts()
         call.respondText(products.joinToString(", "))
     }
@@ -24,7 +34,7 @@ fun Route.productRoutes() {
                 "Missing id",
                 status = io.ktor.http.HttpStatusCode.BadRequest,
             )
-        val product = productService.getById(id)
+        val product = productService.getByProductId(id)
         if (product != null) {
             call.respond(product)
         } else {
@@ -33,16 +43,17 @@ fun Route.productRoutes() {
     }
 
     post("/products") {
-        val name = call.receiveText()
-        val product = productService.saveProduct(name)
+        val productRequest = call.receive<Product>()
+        println("Received product: $productRequest")
+        val productId = productService.createProduct(productRequest)
 
-        if (product == null) {
+        if (productId == null) {
             return@post call.respondText(
                 "Failed to save product",
                 status = io.ktor.http.HttpStatusCode.InternalServerError,
             )
         }
 
-        call.respond(product)
+        call.respond(productId)
     }
 }

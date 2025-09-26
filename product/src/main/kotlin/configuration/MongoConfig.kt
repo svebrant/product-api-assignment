@@ -4,7 +4,7 @@ import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
-import com.svebrant.model.Product
+import com.svebrant.repository.dto.ProductDto
 import org.koin.dsl.module
 
 val mongoModule =
@@ -17,9 +17,9 @@ val mongoModule =
                     .build()
             MongoClient.create(settings)
         }
-        single<MongoCollection<Product>> {
+        single<MongoCollection<ProductDto>> {
             val client: MongoClient = get()
             val database = client.getDatabase("products_db")
-            database.getCollection<Product>("products")
+            database.getCollection<ProductDto>("products")
         }
     }
