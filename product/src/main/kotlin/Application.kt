@@ -32,7 +32,7 @@ fun Application.module() {
     configureAuthentication()
     configureRoutes()
     configureLogging()
-    configureDependencyInjection()
+    configureDependencyInjection(productsIngestFilePath, discountsIngestFilePath)
     configureHttp()
     configureSerialization()
 }

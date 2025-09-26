@@ -30,17 +30,17 @@ val mongoModule =
 
             collection
         }
-        single<MongoCollection<IngestionDto>> {
-            val client: MongoClient = get()
-            val database = client.getDatabase("ingestion_db")
-            val collection = database.getCollection<IngestionDto>("ingestions")
-
-            runBlocking {
-                migrateIngestions(collection)
-            }
-
-            collection
-        }
+//        single<MongoCollection<IngestionDto>> {
+//            val client: MongoClient = get()
+//            val database = client.getDatabase("ingestion_db")
+//            val collection = database.getCollection<IngestionDto>("ingestions")
+//
+//            runBlocking {
+//                migrateIngestions(collection)
+//            }
+//
+//            collection
+//        }
     }
 
 private suspend fun migrateProducts(collection: MongoCollection<ProductDto>) {
