@@ -3,7 +3,7 @@ package com.svebrant.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class Product(
+data class ProductResponse(
     val id: String,
     val name: String,
     val basePrice: Double,

@@ -1,7 +1,9 @@
 package com.svebrant.service
 
+import com.svebrant.configuration.VAT_RATES
 import com.svebrant.model.Country
-import com.svebrant.model.Product
+import com.svebrant.model.ProductRequest
+import com.svebrant.model.ProductResponse
 import com.svebrant.repository.ProductRepository
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -10,36 +12,49 @@ import org.koin.core.component.KoinComponent
 class ProductService(
     private val repository: ProductRepository,
 ) : KoinComponent {
-    suspend fun getProducts(country: Country? = null): List<Product> {
-        log.info { "Retrieving products${country?.let { " for country: $it" } ?: ""}" }
-        val result = repository.find(country = country).map { it.mapToResponse() }
+    suspend fun getProducts(
+        country: Country? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+        sortOrder: String = "ASC",
+    ): List<ProductResponse> {
+        log.info { "Retrieving products${country?.let { " for country: $it" } ?: ""}, limit $limit, offset $offset" }
+        val result =
+            repository
+                .find(country = country, limit = limit, offset = offset, sortOrder = sortOrder)
+                .map { it.mapToResponse() }
         log.info { "Found products: $result" }
         return result
     }
 
-    suspend fun getById(id: String): Product? {
+    suspend fun getById(id: String): ProductResponse? {
         log.info { "Retrieving product by id: $id" }
-        val result: Product? = repository.findById(id)?.mapToResponse()
+        val result: ProductResponse? = repository.findById(id)?.mapToResponse()
         log.info { "Found product by id: $result" }
         return result
     }
 
-    suspend fun getByProductId(id: String): Product? {
+    suspend fun getByProductId(id: String): ProductResponse? {
         log.info { "Retrieving product by id: $id" }
-        val result: Product? = repository.findByProductId(id)?.mapToResponse()
+        val result: ProductResponse? = repository.findByProductId(id)?.mapToResponse()
         log.info { "Found product by id: $result" }
         return result
     }
 
-    suspend fun createProduct(product: Product): String? {
-        log.info { "Creating product: $product" }
-        val saved = repository.save(product)
+    suspend fun createProduct(productRequest: ProductRequest): String? {
+        log.info { "Creating product: $productRequest" }
+        val saved = repository.save(productRequest)
         log.info { "Saved product: $saved" }
         return saved?.productId
     }
 
-    private fun ProductDto.mapToResponse(): Product =
-        Product(this.productId, this.name, this.basePrice, Country.valueOf(this.country), this.taxedPrice)
+    // TODO apply discount ontop of the taxedPrice. discount must be retrieved from discount service
+    private fun ProductDto.mapToResponse(): ProductResponse {
+        val country = Country.valueOf(this.country)
+        val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")
+        val taxedPrice = basePrice * (1.0 + vat)
+        return ProductResponse(this.productId, this.name, this.basePrice, country, taxedPrice = taxedPrice)
+    }
 
     companion object {
         private val log = KotlinLogging.logger { }

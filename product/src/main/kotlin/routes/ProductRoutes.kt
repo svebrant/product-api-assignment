@@ -1,7 +1,8 @@
 package com.svebrant.routes
 
 import com.svebrant.model.Country
-import com.svebrant.model.Product
+import com.svebrant.model.ProductRequest
+import com.svebrant.model.validate
 import com.svebrant.service.ProductService
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -11,7 +12,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import org.koin.ktor.ext.inject
 import kotlin.getValue
-import kotlin.text.get
 
 fun Route.productRoutes() {
     val productService: ProductService by inject<ProductService>()
@@ -25,8 +25,17 @@ fun Route.productRoutes() {
                     throw IllegalArgumentException("Invalid country $country")
                 }
             }
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
+        val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
+        val sortOrder = call.request.queryParameters["sortOrder"] ?: "ASC"
 
-        val products = productService.getProducts(country = countryParam)
+        val products =
+            productService.getProducts(
+                country = countryParam,
+                limit = limit,
+                offset = offset,
+                sortOrder = sortOrder,
+            )
         call.respond(products)
     }
 
@@ -45,17 +54,26 @@ fun Route.productRoutes() {
     }
 
     post("/products") {
-        val productRequest = call.receive<Product>()
-        println("Received product: $productRequest")
-        val productId = productService.createProduct(productRequest)
+        try {
+            val productRequest = call.receive<ProductRequest>()
+            productRequest.validate()
 
-        if (productId == null) {
-            return@post call.respondText(
-                "Failed to save product",
-                status = io.ktor.http.HttpStatusCode.InternalServerError,
+            println("Received product: $productRequest")
+            val productId = productService.createProduct(productRequest)
+
+            if (productId == null) {
+                return@post call.respondText(
+                    "Failed to save product",
+                    status = io.ktor.http.HttpStatusCode.InternalServerError,
+                )
+            }
+
+            call.respond(productId)
+        } catch (e: IllegalArgumentException) {
+            call.respondText(
+                e.message ?: "Invalid request",
+                status = io.ktor.http.HttpStatusCode.BadRequest,
             )
         }
-
-        call.respond(productId)
     }
 }

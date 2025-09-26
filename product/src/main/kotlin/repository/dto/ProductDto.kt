@@ -12,5 +12,4 @@ data class ProductDto(
     val name: String,
     val basePrice: Double,
     val country: String,
-    val taxedPrice: Double,
 )

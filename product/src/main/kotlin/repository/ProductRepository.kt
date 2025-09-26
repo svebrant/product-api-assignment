@@ -5,9 +5,8 @@ import com.mongodb.client.model.Filters.eq
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.model.Filters.and
-import com.mongodb.kotlin.client.model.Filters.eq
 import com.svebrant.model.Country
-import com.svebrant.model.Product
+import com.svebrant.model.ProductRequest
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.firstOrNull
@@ -19,21 +18,20 @@ class ProductRepository(
     private val client: MongoClient,
     private val productsCollection: MongoCollection<ProductDto>,
 ) : KoinComponent {
-    suspend fun save(product: Product): ProductDto? {
+    suspend fun save(productRequest: ProductRequest): ProductDto? {
         val session = client.startSession()
 
         val productToInsert =
             ProductDto(
-                productId = product.id,
-                name = product.name,
-                basePrice = product.basePrice,
-                country = product.country.name,
-                taxedPrice = product.taxedPrice,
+                productId = productRequest.id,
+                name = productRequest.name,
+                basePrice = productRequest.basePrice,
+                country = productRequest.country.name,
             )
 
         try {
             session.startTransaction()
-            log.debug { "Saving $product" }
+            log.debug { "Saving $productRequest" }
             val result = productsCollection.insertOne(productToInsert)
 
             val created = result.insertedId?.let { productToInsert.copy(id = it.asObjectId().value) }
@@ -41,7 +39,7 @@ class ProductRepository(
             session.commitTransaction()
             return created
         } catch (e: Exception) {
-            log.error(e) { "Error saving product $product" }
+            log.error(e) { "Error saving product $productRequest" }
             session.abortTransaction()
             return null
         }
@@ -58,15 +56,26 @@ class ProductRepository(
         return productsCollection.find(eq("productId", id)).firstOrNull()
     }
 
-    suspend fun find(country: Country? = null): List<ProductDto> {
-        log.debug { "Getting products for country $country" }
+    suspend fun find(
+        country: Country? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+        sortOrder: String = "ASC",
+    ): List<ProductDto> {
+        log.debug { "Getting products for country $country, limit $limit, offset $offset" }
 
         val filters = mutableListOf<org.bson.conversions.Bson>()
         if (country != null) filters += eq("country", country.name)
-
         val combinedFilter = if (filters.isEmpty()) Filters.empty() else and(filters)
 
-        return productsCollection.find(combinedFilter).toList()
+        val sortDirection = if (sortOrder.equals("DESC", ignoreCase = true)) -1 else 1
+
+        return productsCollection
+            .find(combinedFilter)
+            .sort(org.bson.Document("productId", sortDirection))
+            .skip(offset)
+            .limit(limit)
+            .toList()
     }
 
     companion object {

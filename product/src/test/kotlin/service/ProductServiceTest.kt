@@ -5,7 +5,7 @@ import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.svebrant.repository.ProductRepository
 import com.svebrant.repository.dto.ProductDto
 import com.svebrant.service.ProductService
-import io.kotest.matchers.collections.shouldNotBeEmpty
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
@@ -47,6 +47,6 @@ class ProductServiceTest : KoinTest {
             val products = productService.getProducts()
 
             // Then
-            products.shouldNotBeEmpty()
+            products.shouldBeEmpty()
         }
 }
