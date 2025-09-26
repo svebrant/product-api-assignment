@@ -41,10 +41,10 @@ class ProductService(
         return result
     }
 
-    suspend fun createProduct(productRequest: ProductRequest): String? {
-        log.info { "Creating product: $productRequest" }
+    suspend fun create(productRequest: ProductRequest): String? {
+        // log.info { "Creating product: $productRequest" }
         val saved = repository.save(productRequest)
-        log.info { "Saved product: $saved" }
+        // log.info { "Saved product: $saved" }
         return saved?.productId
     }
 

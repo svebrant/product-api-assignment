@@ -7,7 +7,11 @@ import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.svebrant.repository.dto.IngestionDto
 import com.svebrant.repository.dto.ProductDto
 import kotlinx.coroutines.runBlocking
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
+
+const val MONGO_PRODUCT_COLLECTION = "productCollection"
+const val MONGO_INGEST_COLLECTION = "ingestCollection"
 
 val mongoModule =
     module {
@@ -19,7 +23,7 @@ val mongoModule =
                     .build()
             MongoClient.create(settings)
         }
-        single<MongoCollection<ProductDto>> {
+        single<MongoCollection<ProductDto>>(named(MONGO_PRODUCT_COLLECTION)) {
             val client: MongoClient = get()
             val database = client.getDatabase("products_db")
             val collection = database.getCollection<ProductDto>("products")
@@ -30,17 +34,17 @@ val mongoModule =
 
             collection
         }
-//        single<MongoCollection<IngestionDto>> {
-//            val client: MongoClient = get()
-//            val database = client.getDatabase("ingestion_db")
-//            val collection = database.getCollection<IngestionDto>("ingestions")
-//
-//            runBlocking {
-//                migrateIngestions(collection)
-//            }
-//
-//            collection
-//        }
+        single<MongoCollection<IngestionDto>>(named(MONGO_INGEST_COLLECTION)) {
+            val client: MongoClient = get()
+            val database = client.getDatabase("ingestion_db")
+            val collection = database.getCollection<IngestionDto>("ingestions")
+
+            runBlocking {
+                migrateIngestions(collection)
+            }
+
+            collection
+        }
     }
 
 private suspend fun migrateProducts(collection: MongoCollection<ProductDto>) {
