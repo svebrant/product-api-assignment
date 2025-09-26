@@ -1,5 +1,6 @@
 package com.svebrant
 
+import com.svebrant.configuration.configureAuthentication
 import com.svebrant.configuration.configureDependencyInjection
 import com.svebrant.configuration.configureHttp
 import com.svebrant.configuration.configureLogging
@@ -25,6 +26,7 @@ fun Application.module() {
 
     log.info { "Starting app $appName" }
 
+    configureAuthentication()
     configureRoutes()
     configureLogging()
     configureDependencyInjection()
