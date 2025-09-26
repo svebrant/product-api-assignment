@@ -1,5 +1,6 @@
 package com.svebrant.configuration
 
+import com.svebrant.routes.adminRoutes
 import com.svebrant.routes.mainRoutes
 import com.svebrant.routes.productRoutes
 import io.ktor.server.application.Application
@@ -10,6 +11,7 @@ fun Application.configureRoutes() {
     routing {
         mainRoutes()
         authenticate("auth-bearer") {
+            adminRoutes()
             productRoutes()
         }
     }

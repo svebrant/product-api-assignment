@@ -1,9 +1,9 @@
 package com.svebrant.service
 
 import com.svebrant.configuration.VAT_RATES
-import com.svebrant.model.Country
-import com.svebrant.model.ProductRequest
-import com.svebrant.model.ProductResponse
+import com.svebrant.model.product.Country
+import com.svebrant.model.product.ProductRequest
+import com.svebrant.model.product.ProductResponse
 import com.svebrant.repository.ProductRepository
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging

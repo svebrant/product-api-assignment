@@ -22,9 +22,12 @@ fun main(args: Array<String>) {
 fun Application.module() {
     val appConfig = environment.config
     val appName = appConfig.property("service.name").getString()
+    val productsIngestFilePath = appConfig.property("ingest.productsFilePath").getString()
+    val discountsIngestFilePath = appConfig.property("ingest.discountsFilePath").getString()
     val log = KotlinLogging.logger { }
 
     log.info { "Starting app $appName" }
+    log.info { "Configured ingestion filePaths: $productsIngestFilePath $discountsIngestFilePath" }
 
     configureAuthentication()
     configureRoutes()

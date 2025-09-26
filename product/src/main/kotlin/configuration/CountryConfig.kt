@@ -1,6 +1,6 @@
 package com.svebrant.configuration
 
-import com.svebrant.model.Country
+import com.svebrant.model.product.Country
 
 val VAT_RATES: Map<Country, Double> =
     mapOf(

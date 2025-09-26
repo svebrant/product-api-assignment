@@ -1,6 +1,10 @@
 service:
   name: product-service
 
+ingest:
+  productsFilePath: "/data/products.ndjson"
+  discountsFilePath: "/data/discounts.ndjson"
+
 ktor:
   application:
     modules:

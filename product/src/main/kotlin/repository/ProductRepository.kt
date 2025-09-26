@@ -5,8 +5,8 @@ import com.mongodb.client.model.Filters.eq
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.model.Filters.and
-import com.svebrant.model.Country
-import com.svebrant.model.ProductRequest
+import com.svebrant.model.product.Country
+import com.svebrant.model.product.ProductRequest
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.firstOrNull

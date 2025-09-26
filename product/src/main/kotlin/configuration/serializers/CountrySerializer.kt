@@ -1,6 +1,6 @@
 package com.svebrant.configuration.serializers
 
-import com.svebrant.model.Country
+import com.svebrant.model.product.Country
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor

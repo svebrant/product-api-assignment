@@ -1,4 +1,4 @@
-package com.svebrant.model
+package com.svebrant.model.product
 
 import kotlinx.serialization.Serializable
 

@@ -1,8 +1,8 @@
 package com.svebrant.routes
 
-import com.svebrant.model.Country
-import com.svebrant.model.ProductRequest
-import com.svebrant.model.validate
+import com.svebrant.model.product.Country
+import com.svebrant.model.product.ProductRequest
+import com.svebrant.model.product.validate
 import com.svebrant.service.ProductService
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -13,21 +13,26 @@ import io.ktor.server.routing.post
 import org.koin.ktor.ext.inject
 import kotlin.getValue
 
+const val PARAM_COUNTRY = "country"
+const val PARAM_LIMIT = "limit"
+const val PARAM_OFFSET = "offset"
+const val PARAM_SORT_ORDER = "sortOrder"
+
 fun Route.productRoutes() {
     val productService: ProductService by inject<ProductService>()
 
     get("/products") {
         val countryParam =
-            call.request.queryParameters["country"]?.let { country ->
+            call.request.queryParameters[PARAM_COUNTRY]?.let { country ->
                 try {
                     Country.valueOf(country.uppercase())
                 } catch (e: Exception) {
                     throw IllegalArgumentException("Invalid country $country")
                 }
             }
-        val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
-        val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-        val sortOrder = call.request.queryParameters["sortOrder"] ?: "ASC"
+        val limit = call.request.queryParameters[PARAM_LIMIT]?.toIntOrNull() ?: 20
+        val offset = call.request.queryParameters[PARAM_OFFSET]?.toIntOrNull() ?: 0
+        val sortOrder = call.request.queryParameters[PARAM_SORT_ORDER] ?: "ASC"
 
         val products =
             productService.getProducts(
