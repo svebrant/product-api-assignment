@@ -14,7 +14,7 @@ fun Application.configureDependencyInjection() {
 
     val repositoryModule =
         module {
-            single { ProductRepository(get()) }
+            single { ProductRepository(get(), get()) }
         }
 
     startKoin {

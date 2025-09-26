@@ -9,13 +9,16 @@ import org.koin.dsl.module
 
 val mongoModule =
     module {
-        single<MongoCollection<Product>> {
+        single<MongoClient> {
             val settings =
                 MongoClientSettings
                     .builder()
                     .applyConnectionString(ConnectionString("mongodb://localhost:27017"))
                     .build()
-            val client = MongoClient.create(settings)
+            MongoClient.create(settings)
+        }
+        single<MongoCollection<Product>> {
+            val client: MongoClient = get()
             val database = client.getDatabase("products_db")
             database.getCollection<Product>("products")
         }

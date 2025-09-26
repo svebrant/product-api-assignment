@@ -1,5 +1,6 @@
 package service
 
+import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.svebrant.model.Product
 import com.svebrant.repository.ProductRepository
@@ -18,6 +19,8 @@ import org.koin.test.inject
 class ProductServiceTest : KoinTest {
     val productService: ProductService by inject()
     val repository: ProductRepository by inject()
+
+    private val mockClient = mockk<MongoClient>(relaxed = true)
     private val mockCollection = mockk<MongoCollection<Product>>(relaxed = true)
 
     @BeforeEach
@@ -27,8 +30,9 @@ class ProductServiceTest : KoinTest {
             modules(
                 module {
                     single { mockCollection }
+                    single { mockClient }
                     single { ProductService(get()) }
-                    single { ProductRepository(get()) }
+                    single { ProductRepository(get(), get()) }
                 },
             )
         }

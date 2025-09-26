@@ -35,6 +35,14 @@ fun Route.productRoutes() {
     post("/products") {
         val name = call.receiveText()
         val product = productService.saveProduct(name)
+
+        if (product == null) {
+            return@post call.respondText(
+                "Failed to save product",
+                status = io.ktor.http.HttpStatusCode.InternalServerError,
+            )
+        }
+
         call.respond(product)
     }
 }

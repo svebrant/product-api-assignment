@@ -20,13 +20,14 @@ class ProductService(
         return result
     }
 
-    suspend fun saveProduct(name: String) {
+    suspend fun saveProduct(name: String): Product? {
         log.info { "Saving product: $name" }
         val saved = repository.save(Product(name = name, basePrice = 15.0, country = "Sweden", taxedPrice = 12.5))
         log.info { "Saved product: $saved" }
+        return saved
     }
 
     companion object {
-        private val log = KotlinLogging.logger {}
+        private val log = KotlinLogging.logger { }
     }
 }

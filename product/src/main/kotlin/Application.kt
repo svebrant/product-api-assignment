@@ -2,6 +2,7 @@ package com.svebrant
 
 import com.svebrant.configuration.configureDependencyInjection
 import com.svebrant.configuration.configureHttp
+import com.svebrant.configuration.configureLogging
 import com.svebrant.configuration.configureRoutes
 import com.svebrant.configuration.configureSerialization
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -25,6 +26,7 @@ fun Application.module() {
     log.info { "Starting app $appName" }
 
     configureRoutes()
+    configureLogging()
     configureDependencyInjection()
     configureHttp()
     configureSerialization()
