@@ -1,8 +1,11 @@
 package com.svebrant.repository
 
+import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
+import com.mongodb.kotlin.client.model.Filters.and
+import com.mongodb.kotlin.client.model.Filters.eq
 import com.svebrant.model.Country
 import com.svebrant.model.Product
 import com.svebrant.repository.dto.ProductDto
@@ -24,7 +27,7 @@ class ProductRepository(
                 productId = product.id,
                 name = product.name,
                 basePrice = product.basePrice,
-                country = product.country,
+                country = product.country.name,
                 taxedPrice = product.taxedPrice,
             )
 
@@ -55,9 +58,15 @@ class ProductRepository(
         return productsCollection.find(eq("productId", id)).firstOrNull()
     }
 
-    suspend fun findByCountry(country: Country): List<ProductDto> {
+    suspend fun find(country: Country? = null): List<ProductDto> {
         log.debug { "Getting products for country $country" }
-        return productsCollection.find(eq("country", country.name)).toList()
+
+        val filters = mutableListOf<org.bson.conversions.Bson>()
+        if (country != null) filters += eq("country", country.name)
+
+        val combinedFilter = if (filters.isEmpty()) Filters.empty() else and(filters)
+
+        return productsCollection.find(combinedFilter).toList()
     }
 
     companion object {

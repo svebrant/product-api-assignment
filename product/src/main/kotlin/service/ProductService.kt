@@ -10,9 +10,11 @@ import org.koin.core.component.KoinComponent
 class ProductService(
     private val repository: ProductRepository,
 ) : KoinComponent {
-    suspend fun getProducts(): List<String> {
-        log.info { "Retrieving products" }
-        return listOf("Product1", "Product2", "Product3")
+    suspend fun getProducts(country: Country? = null): List<Product> {
+        log.info { "Retrieving products${country?.let { " for country: $it" } ?: ""}" }
+        val result = repository.find(country = country).map { it.mapToResponse() }
+        log.info { "Found products: $result" }
+        return result
     }
 
     suspend fun getById(id: String): Product? {
@@ -29,13 +31,6 @@ class ProductService(
         return result
     }
 
-    suspend fun getByCountry(country: Country): List<Product> {
-        log.info { "Retrieving product by country: $country" }
-        val result = repository.findByCountry(country).map { it.mapToResponse() }
-        log.info { "Found product by id: $result" }
-        return result
-    }
-
     suspend fun createProduct(product: Product): String? {
         log.info { "Creating product: $product" }
         val saved = repository.save(product)
@@ -43,7 +38,8 @@ class ProductService(
         return saved?.productId
     }
 
-    private fun ProductDto.mapToResponse(): Product = Product(this.productId, this.name, this.basePrice, this.country, this.taxedPrice)
+    private fun ProductDto.mapToResponse(): Product =
+        Product(this.productId, this.name, this.basePrice, Country.valueOf(this.country), this.taxedPrice)
 
     companion object {
         private val log = KotlinLogging.logger { }

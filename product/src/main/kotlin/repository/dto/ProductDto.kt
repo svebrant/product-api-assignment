@@ -1,6 +1,5 @@
 package com.svebrant.repository.dto
 
-import com.svebrant.model.Country
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -12,6 +11,6 @@ data class ProductDto(
     @SerialName("_id") @Contextual val id: ObjectId? = null,
     val name: String,
     val basePrice: Double,
-    val country: Country,
+    val country: String,
     val taxedPrice: Double,
 )

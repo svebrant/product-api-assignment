@@ -5,6 +5,7 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.svebrant.repository.dto.ProductDto
+import kotlinx.coroutines.runBlocking
 import org.koin.dsl.module
 
 val mongoModule =
@@ -20,6 +21,21 @@ val mongoModule =
         single<MongoCollection<ProductDto>> {
             val client: MongoClient = get()
             val database = client.getDatabase("products_db")
-            database.getCollection<ProductDto>("products")
+            val collection = database.getCollection<ProductDto>("products")
+
+            runBlocking {
+                migrate(collection)
+            }
+
+            collection
         }
     }
+
+private suspend fun migrate(collection: MongoCollection<ProductDto>) {
+    collection.createIndex(
+        org.bson.Document("productId", 1),
+        com.mongodb.client.model
+            .IndexOptions()
+            .unique(true),
+    )
+}

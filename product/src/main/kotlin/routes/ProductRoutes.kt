@@ -11,21 +11,23 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import org.koin.ktor.ext.inject
 import kotlin.getValue
+import kotlin.text.get
 
 fun Route.productRoutes() {
     val productService: ProductService by inject<ProductService>()
 
     get("/products") {
-        val params = call.request.queryParameters
+        val countryParam =
+            call.request.queryParameters["country"]?.let { country ->
+                try {
+                    Country.valueOf(country.uppercase())
+                } catch (e: Exception) {
+                    throw IllegalArgumentException("Invalid country $country")
+                }
+            }
 
-        if (params.get("country") != null) {
-            val country = Country.valueOf(params.get("country")!!.uppercase())
-            val products = productService.getByCountry(country)
-            return@get call.respond(products)
-        }
-
-        val products = productService.getProducts()
-        call.respondText(products.joinToString(", "))
+        val products = productService.getProducts(country = countryParam)
+        call.respond(products)
     }
 
     get("/products/{id}") {
