@@ -3,9 +3,12 @@ package com.svebrant.service
 import com.svebrant.exception.DuplicateEntryException
 import com.svebrant.exception.FailFastException
 import com.svebrant.exception.ValidationErrorException
+import com.svebrant.metrics.IngestionMetrics
+import com.svebrant.metrics.MAX_ERROR_SAMPLES
 import com.svebrant.model.discount.DiscountRequest
 import com.svebrant.model.ingest.ErrorSample
 import com.svebrant.model.ingest.IngestEntity
+import com.svebrant.model.ingest.IngestEntityData
 import com.svebrant.model.ingest.IngestMode
 import com.svebrant.model.ingest.IngestRequest
 import com.svebrant.model.ingest.IngestResponse
@@ -14,7 +17,6 @@ import com.svebrant.model.ingest.IngestionStatusResponse
 import com.svebrant.model.ingest.IngestionSummary
 import com.svebrant.model.product.ProductRequest
 import com.svebrant.repository.IngestRepository
-import com.svebrant.repository.dto.ErrorDto
 import com.svebrant.repository.dto.IngestionDto
 import com.svebrant.repository.dto.IngestionSummaryDto
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -22,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
@@ -29,8 +32,6 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
-
-const val MAX_ERROR_SAMPLES = 5
 
 class IngestService(
     private val ingestRepository: IngestRepository,
@@ -102,345 +103,423 @@ class IngestService(
 
         log.info { "Processing ingestion job ${ingest.ingestionId} with mode ${ingest.mode}" }
 
-        // Set up progress tracking
-        var productsParsed = 0
-        var productsIngested = 0
-        var productsFailed = 0
-        var productsDeduplicated = 0
-        var discountsParsed = 0
-        var discountsIngested = 0
-        var discountsFailed = 0
-        var discountsDeduplicated = 0
-        val errorSamples = mutableListOf<ErrorDto>()
-
-        // Determine which files we're processing based on mode
-        val filesDiscovered =
-            when (ingest.mode) {
-                IngestMode.PRODUCTS -> 1
-                IngestMode.DISCOUNTS -> 1
-                IngestMode.ALL -> 2
-            }
+        val metrics = IngestionMetrics()
+        val filesDiscovered = calculateFilesDiscovered(ingest.mode)
         var filesProcessed = 0
 
-        // Initial progress update
-        ingestRepository.updateProgress(
-            ingestionId = ingestionId,
-            filesDiscovered = filesDiscovered,
-            filesProcessed = filesProcessed,
-        )
+        updateInitialProgress(ingestionId, filesDiscovered)
 
         try {
-            // Update status to STARTED
             ingestRepository.updateStatus(ingestionId, IngestStatus.STARTED)
 
-            coroutineScope {
-                val channel = Channel<IngestEntityChannel>(capacity = Channel.UNLIMITED)
-                processFilesAndSendToChannel(ingest.mode, channel)
+            if (ingest.dryRun) {
+                processDryRun(ingest, ingestionId, metrics, filesDiscovered)
+            } else {
+                processWithWorkers(ingest, ingestionId, metrics)
 
-                // If we're only processing one file type, mark file as processed
-                if (ingest.mode != IngestMode.ALL) {
-                    filesProcessed = 1
-                    ingestRepository.updateProgress(
-                        ingestionId = ingestionId,
-                        filesProcessed = filesProcessed,
-                    )
-                }
-
-                // Track last update time to avoid updating DB too frequently
-                var lastUpdateTime = System.currentTimeMillis()
-                val updateIntervalMs = 5000 // Update every 5 seconds
-
-                // Set up atomic counters to track metrics across coroutines
-                val atomicProductsParsed =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicProductsIngested =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicProductsFailed =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicProductsDeduplicated =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-
-                val atomicDiscountsParsed =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicDiscountsIngested =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicDiscountsFailed =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-                val atomicDiscountsDeduplicated =
-                    java.util.concurrent.atomic
-                        .AtomicInteger(0)
-
-                // Error collection needs synchronization
-                val errorLock = Any()
-
-                // Create worker coroutines
-                val workerJobs =
-                    List(ingest.workers) { workerId ->
-                        launch(Dispatchers.IO) {
-                            for ((entity: IngestEntity, line: String, index: Int, filename: String) in channel) {
-                                var attempt = 0
-                                var success = false
-
-                                // Try to process with retries
-                                while (attempt <= ingest.retries && !success) {
-                                    try {
-                                        when (entity) {
-                                            IngestEntity.PRODUCT -> {
-                                                val parsed = json.decodeFromString(ProductRequest.serializer(), line)
-                                                atomicProductsParsed.incrementAndGet()
-                                                try {
-                                                    if (!ingest.dryRun) {
-                                                        productService.create(parsed)
-                                                        atomicProductsIngested.incrementAndGet()
-                                                    }
-                                                } catch (e: DuplicateEntryException) {
-                                                    log.debug { "Duplicate entry for productId $ingestionId" }
-                                                    atomicProductsDeduplicated.incrementAndGet()
-                                                    synchronized(errorLock) {
-                                                        maybeAddErrorSample(errorSamples, filename, index, e)
-                                                    }
-                                                    if (ingest.failFast) {
-                                                        throw FailFastException(e.message ?: "Fail fast")
-                                                    }
-                                                    success = true
-                                                    continue
-                                                } catch (e: ValidationErrorException) {
-                                                    log.debug { "Validation error: ${e.message}" }
-                                                    atomicProductsFailed.incrementAndGet()
-                                                    synchronized(errorLock) {
-                                                        maybeAddErrorSample(errorSamples, filename, index, e)
-                                                    }
-                                                    if (ingest.failFast) {
-                                                        throw FailFastException(e.message ?: "Fail fast")
-                                                    }
-                                                    success = true
-                                                    continue
-                                                } catch (e: Exception) {
-                                                    throw e
-                                                }
-                                            }
-
-                                            IngestEntity.DISCOUNT -> {
-                                                val parsed = json.decodeFromString(DiscountRequest.serializer(), line)
-                                                atomicDiscountsParsed.incrementAndGet()
-                                                try {
-                                                    if (!ingest.dryRun) {
-                                                        discountService.create(parsed)
-                                                        atomicDiscountsIngested.incrementAndGet()
-                                                    }
-                                                } catch (e: DuplicateEntryException) {
-                                                    log.debug { "Duplicate entry for productId $ingestionId" }
-                                                    atomicDiscountsDeduplicated.incrementAndGet()
-                                                    synchronized(errorLock) {
-                                                        maybeAddErrorSample(errorSamples, filename, index, e)
-                                                    }
-                                                    if (ingest.failFast) {
-                                                        throw FailFastException(e.message ?: "Fail fast")
-                                                    }
-                                                    success = true
-                                                    continue
-                                                } catch (e: ValidationErrorException) {
-                                                    log.debug { "Validation error: ${e.message}" }
-                                                    atomicProductsFailed.incrementAndGet()
-                                                    synchronized(errorLock) {
-                                                        maybeAddErrorSample(errorSamples, filename, index, e)
-                                                    }
-                                                    if (ingest.failFast) {
-                                                        throw FailFastException(e.message ?: "Fail fast ")
-                                                    }
-                                                    success = true
-                                                    continue
-                                                } catch (e: Exception) {
-                                                    throw e
-                                                }
-                                            }
-                                        }
-                                        success = true
-                                    } catch (e: Exception) {
-                                        attempt++
-                                        if (attempt > ingest.retries) {
-                                            // Failed after all retries
-                                            when (entity) {
-                                                IngestEntity.PRODUCT -> atomicProductsFailed.incrementAndGet()
-                                                IngestEntity.DISCOUNT -> atomicDiscountsFailed.incrementAndGet()
-                                            }
-
-                                            // Record error sample
-                                            synchronized(errorLock) {
-                                                maybeAddErrorSample(errorSamples, filename, index, e)
-                                            }
-
-                                            log.error(
-                                                e,
-                                            ) { "Worker $workerId: Failed to ingest $entity after ${ingest.retries} retries: $line" }
-                                            if (ingest.failFast) {
-                                                throw e
-                                            }
-                                        } else {
-                                            log.warn { "Worker $workerId: Retry $attempt for $entity: $line" }
-                                        }
-                                    }
-                                }
-
-                                // Check if we should update progress in DB
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastUpdateTime > updateIntervalMs) {
-                                    // Snapshot current counts
-                                    productsParsed = atomicProductsParsed.get()
-                                    productsIngested = atomicProductsIngested.get()
-                                    productsFailed = atomicProductsFailed.get()
-                                    productsDeduplicated = atomicProductsDeduplicated.get()
-                                    discountsParsed = atomicDiscountsParsed.get()
-                                    discountsIngested = atomicDiscountsIngested.get()
-                                    discountsFailed = atomicDiscountsFailed.get()
-                                    discountsDeduplicated = atomicDiscountsDeduplicated.get()
-
-                                    // Get current error samples (synchronized)
-                                    val currentErrors =
-                                        synchronized(errorLock) {
-                                            errorSamples.toList()
-                                        }
-
-                                    ingestRepository.updateProgress(
-                                        ingestionId = ingestionId,
-                                        productsParsed = productsParsed,
-                                        productsIngested = productsIngested,
-                                        productsFailed = productsFailed,
-                                        productsDeduplicated = productsDeduplicated,
-                                        discountsParsed = discountsParsed,
-                                        discountsIngested = discountsIngested,
-                                        discountsFailed = discountsFailed,
-                                        discountsDeduplicated = discountsDeduplicated,
-                                        errors = currentErrors,
-                                    )
-
-                                    lastUpdateTime = currentTime
-                                }
-                            }
-                        }
-                    }
-
-                // Wait for all workers to complete
-                workerJobs.joinAll()
-
-                // Get the final updated counts
-                productsParsed = atomicProductsParsed.get()
-                productsIngested = atomicProductsIngested.get()
-                productsFailed = atomicProductsFailed.get()
-                productsDeduplicated = atomicProductsDeduplicated.get()
-                discountsParsed = atomicDiscountsParsed.get()
-                discountsIngested = atomicDiscountsIngested.get()
-                discountsFailed = atomicDiscountsFailed.get()
-                discountsDeduplicated = atomicDiscountsDeduplicated.get()
-
-                // If we processed both product and discount files
-                if (ingest.mode == IngestMode.ALL) {
-                    filesProcessed = 2
-                }
+                filesProcessed = if (ingest.mode == IngestMode.ALL) 2 else 1
             }
 
-            // Make a final progress update
-            ingestRepository.updateProgress(
-                ingestionId = ingestionId,
-                filesDiscovered = filesDiscovered,
-                filesProcessed = filesProcessed,
-                productsParsed = productsParsed,
-                productsIngested = productsIngested,
-                productsFailed = productsFailed,
-                productsDeduplicated = productsDeduplicated,
-                discountsParsed = discountsParsed,
-                discountsIngested = discountsIngested,
-                discountsFailed = discountsFailed,
-                discountsDeduplicated = discountsDeduplicated,
-                errors = errorSamples,
-            )
+            updateFinalProgress(ingestionId, metrics, filesDiscovered, filesProcessed)
 
-            // Update status to COMPLETED
             ingestRepository.updateStatus(ingestionId, IngestStatus.COMPLETED)
-            log.info {
-                "Successfully completed ingestion job $ingestionId"
-            }
+            log.info { "Successfully completed ingestion job $ingestionId - ${metrics.getSummary(ingest.dryRun)}" }
         } catch (e: Exception) {
-            // Update status to FAILED
+            updateFinalProgress(ingestionId, metrics, filesDiscovered, filesProcessed)
             ingestRepository.updateStatus(ingestionId, IngestStatus.FAILED)
             log.error(e) { "Error during ingestion process for job $ingestionId" }
             throw e
         }
     }
 
-    private fun maybeAddErrorSample(
-        errorSamples: MutableList<ErrorDto>,
-        filename: String,
-        index: Int,
-        e: Exception,
+    private fun calculateFilesDiscovered(mode: IngestMode): Int =
+        when (mode) {
+            IngestMode.PRODUCTS -> 1
+            IngestMode.DISCOUNTS -> 1
+            IngestMode.ALL -> 2
+        }
+
+    private suspend fun updateInitialProgress(
+        ingestionId: String,
+        filesDiscovered: Int,
     ) {
-        if (errorSamples.size <= MAX_ERROR_SAMPLES && errorSamples.none { it.line == index && it.file == filename }) {
-            errorSamples.add(
-                ErrorDto(
-                    file = filename,
-                    line = index,
-                    reason = e.message ?: "Unknown error",
-                ),
+        ingestRepository.updateProgress(
+            ingestionId = ingestionId,
+            filesDiscovered = filesDiscovered,
+            filesProcessed = 0,
+        )
+    }
+
+    private suspend fun processDryRun(
+        ingest: IngestionDto,
+        ingestionId: String,
+        metrics: IngestionMetrics,
+        filesDiscovered: Int,
+    ) {
+        log.info { "Processing dry run for ingestion $ingestionId" }
+
+        // Count lines in files to simulate processing
+        val productLines =
+            if (ingest.mode == IngestMode.PRODUCTS || ingest.mode == IngestMode.ALL) {
+                countFileLines(productsFilePath)
+            } else {
+                0
+            }
+
+        val discountLines =
+            if (ingest.mode == IngestMode.DISCOUNTS || ingest.mode == IngestMode.ALL) {
+                countFileLines(discountsFilePath)
+            } else {
+                0
+            }
+
+        // Set metrics
+        metrics.productsParsed.set(productLines)
+        metrics.productsIngested.set(productLines)
+        metrics.discountsParsed.set(discountLines)
+        metrics.discountsIngested.set(discountLines)
+
+        // Simulate processing time for monitoring
+        delay(500)
+
+        // Update progress to simulate completion
+        val snapshot = metrics.snapshot()
+        ingestRepository.updateProgress(
+            ingestionId = ingestionId,
+            filesDiscovered = filesDiscovered,
+            filesProcessed = filesDiscovered, // All files processed in dry run
+            productsParsed = snapshot.productsParsed,
+            productsIngested = snapshot.productsIngested,
+            discountsParsed = snapshot.discountsParsed,
+            discountsIngested = snapshot.discountsIngested,
+        )
+    }
+
+    private fun countFileLines(file: String): Int =
+        try {
+            this::class.java
+                .getResourceAsStream(file)
+                ?.bufferedReader()
+                ?.lineSequence()
+                ?.count() ?: 0
+        } catch (e: Exception) {
+            log.warn { "Failed to count lines in file $file: ${e.message}" }
+            0
+        }
+
+    private suspend fun processWithWorkers(
+        ingest: IngestionDto,
+        ingestionId: String,
+        metrics: IngestionMetrics,
+    ) {
+        coroutineScope {
+            val channel = Channel<IngestEntityData>(capacity = Channel.UNLIMITED)
+
+            launchFileReader(ingest.mode, channel)
+
+            // Track last update time to avoid updating DB too frequently
+            var lastUpdateTime = System.currentTimeMillis()
+            val updateIntervalMs = 5000 // Update every 5 seconds
+
+            val workerJobs =
+                createWorkers(
+                    ingest = ingest,
+                    channel = channel,
+                    metrics = metrics,
+                    updateProgress = { currentTime ->
+                        if (currentTime - lastUpdateTime > updateIntervalMs) {
+                            // Launch a new coroutine to handle the database update
+                            launch {
+                                updateProgressMetrics(ingestionId, metrics)
+                            }
+                            lastUpdateTime = currentTime
+                        }
+                    },
+                )
+
+            workerJobs.joinAll()
+        }
+    }
+
+    private fun CoroutineScope.launchFileReader(
+        mode: IngestMode,
+        channel: Channel<IngestEntityData>,
+    ) = launch {
+        if (mode == IngestMode.PRODUCTS || mode == IngestMode.ALL) {
+            readFileToChannel(
+                filePath = productsFilePath,
+                entity = IngestEntity.PRODUCT,
+                channel = channel,
             )
         }
+
+        if (mode == IngestMode.DISCOUNTS || mode == IngestMode.ALL) {
+            readFileToChannel(
+                filePath = discountsFilePath,
+                entity = IngestEntity.DISCOUNT,
+                channel = channel,
+            )
+        }
+
+        channel.close()
     }
 
-    data class IngestEntityChannel(
-        val entity: IngestEntity,
-        val line: String,
-        val lineNumber: Int,
-        val fileName: String,
-    )
-
-    private fun CoroutineScope.processFilesAndSendToChannel(
-        mode: IngestMode,
-        channel: Channel<IngestEntityChannel>,
+    private suspend fun readFileToChannel(
+        filePath: String,
+        entity: IngestEntity,
+        channel: Channel<IngestEntityData>,
     ) {
-        launch {
-            if (mode == IngestMode.PRODUCTS || mode == IngestMode.ALL) {
-                readFileLines(productsFilePath).forEachIndexed { index, line ->
-                    channel.send(IngestEntityChannel(IngestEntity.PRODUCT, line, index, productsFilePath))
-                }
+        val inputStream =
+            this::class.java.getResourceAsStream(filePath)
+                ?: return
+
+        inputStream.bufferedReader().use { reader ->
+            reader.lineSequence().forEachIndexed { index, line ->
+                channel.send(
+                    IngestEntityData(
+                        entity = entity,
+                        line = line,
+                        lineNumber = index,
+                        fileName = filePath,
+                    ),
+                )
             }
-            if (mode == IngestMode.DISCOUNTS || mode == IngestMode.ALL) {
-                readFileLines(discountsFilePath).forEachIndexed { index, line ->
-                    channel.send(IngestEntityChannel(IngestEntity.DISCOUNT, line, index, discountsFilePath))
-                }
-            }
-            channel.close()
         }
     }
 
-    private fun readFileLines(file: String): Sequence<String> {
-        val inputStream =
-            this::class.java.getResourceAsStream(file)
-                ?: return emptySequence()
-        return inputStream
-            .bufferedReader()
-            .lineSequence()
-            .toList()
-            .asSequence()
+    private fun CoroutineScope.createWorkers(
+        ingest: IngestionDto,
+        channel: Channel<IngestEntityData>,
+        metrics: IngestionMetrics,
+        updateProgress: (Long) -> Unit,
+    ) = List(ingest.workers) { workerId ->
+        launch(Dispatchers.IO) {
+            for (data in channel) {
+                processChannelItem(
+                    data = data,
+                    ingest = ingest,
+                    metrics = metrics,
+                    workerId = workerId,
+                )
+
+                updateProgress(System.currentTimeMillis())
+            }
+        }
     }
 
-    private fun generateIngestionId(): String {
-        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-        return "ing-${now.year}${now.monthNumber.toString().padStart(2, '0')}${
-            now.dayOfMonth.toString().padStart(2, '0')
-        }-" +
-                "${
-                    now.hour.toString().padStart(
-                        2,
-                        '0',
+    private suspend fun processChannelItem(
+        data: IngestEntityData,
+        ingest: IngestionDto,
+        metrics: IngestionMetrics,
+        workerId: Int,
+    ) {
+        val (entity, line, lineNumber, fileName) = data
+        var attempt = 0
+        var success = false
+
+        while (attempt <= ingest.retries && !success) {
+            try {
+                when (entity) {
+                    IngestEntity.PRODUCT -> {
+                        processProduct(
+                            line = line,
+                            metrics = metrics,
+                            ingest = ingest,
+                            fileName = fileName,
+                            lineNumber = lineNumber,
+                            attempt = attempt,
+                        )
+                    }
+
+                    IngestEntity.DISCOUNT -> {
+                        processDiscount(
+                            line = line,
+                            metrics = metrics,
+                            ingest = ingest,
+                            fileName = fileName,
+                            lineNumber = lineNumber,
+                            attempt = attempt,
+                        )
+                    }
+                }
+                success = true
+            } catch (e: Exception) {
+                attempt++
+                if (attempt > ingest.retries) {
+                    handleProcessingFailure(
+                        entity = entity,
+                        metrics = metrics,
+                        exception = e,
+                        fileName = fileName,
+                        lineNumber = lineNumber,
+                        workerId = workerId,
+                        line = line,
+                        failFast = ingest.failFast,
+                        attempt = attempt,
                     )
-                }${now.minute.toString().padStart(2, '0')}${now.second.toString().padStart(2, '0')}-" +
-                (0..999999).random().toString(16)
+                } else {
+                    log.warn { "Worker $workerId: Retry $attempt for $entity: $line" }
+                }
+            }
+        }
+
+        // Add small delay in dry run to allow tracking
+        if (ingest.dryRun) {
+            delay(10)
+        }
+    }
+
+    private suspend fun processProduct(
+        line: String,
+        metrics: IngestionMetrics,
+        ingest: IngestionDto,
+        fileName: String,
+        lineNumber: Int,
+        attempt: Int,
+    ) {
+        val parsed = json.decodeFromString(ProductRequest.serializer(), line)
+        if (attempt == 0) {
+            metrics.productsParsed.incrementAndGet()
+        }
+
+        try {
+            if (!ingest.dryRun) {
+                productService.create(parsed)
+            }
+            metrics.productsIngested.incrementAndGet()
+        } catch (e: DuplicateEntryException) {
+            log.debug { "Duplicate product entry: ${e.message}" }
+            if (attempt == 0) {
+                metrics.productsDeduplicated.incrementAndGet()
+            }
+            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Duplicate product", MAX_ERROR_SAMPLES)
+            if (ingest.failFast) {
+                throw FailFastException("Duplicate product: ${e.message}")
+            }
+        } catch (e: ValidationErrorException) {
+            log.debug { "Product validation error: ${e.message}" }
+            if (attempt == 0) {
+                metrics.productsFailed.incrementAndGet()
+            }
+            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Validation error", MAX_ERROR_SAMPLES)
+            if (ingest.failFast) {
+                throw FailFastException("Product validation error: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun processDiscount(
+        line: String,
+        metrics: IngestionMetrics,
+        ingest: IngestionDto,
+        fileName: String,
+        lineNumber: Int,
+        attempt: Int,
+    ) {
+        val parsed = json.decodeFromString(DiscountRequest.serializer(), line)
+        if (attempt == 0) {
+            metrics.discountsParsed.incrementAndGet()
+        }
+
+        try {
+            if (!ingest.dryRun) {
+                discountService.create(parsed)
+            }
+            metrics.discountsIngested.incrementAndGet()
+        } catch (e: DuplicateEntryException) {
+            log.debug { "Duplicate discount entry: ${e.message}" }
+            if (attempt == 0) {
+                metrics.discountsDeduplicated.incrementAndGet()
+            }
+            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Duplicate discount", MAX_ERROR_SAMPLES)
+            if (ingest.failFast) {
+                throw FailFastException("Duplicate discount: ${e.message}")
+            }
+        } catch (e: ValidationErrorException) {
+            log.debug { "Discount validation error: ${e.message}" }
+            if (attempt == 0) {
+                metrics.discountsFailed.incrementAndGet()
+            }
+            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Validation error", MAX_ERROR_SAMPLES)
+            if (ingest.failFast) {
+                throw FailFastException("Discount validation error: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleProcessingFailure(
+        entity: IngestEntity,
+        metrics: IngestionMetrics,
+        exception: Exception,
+        fileName: String,
+        lineNumber: Int,
+        workerId: Int,
+        line: String,
+        failFast: Boolean,
+        attempt: Int,
+    ) {
+        if (attempt == 0) {
+            when (entity) {
+                IngestEntity.PRODUCT -> metrics.productsFailed.incrementAndGet()
+                IngestEntity.DISCOUNT -> metrics.discountsFailed.incrementAndGet()
+            }
+        }
+
+        metrics.addErrorSample(
+            fileName = fileName,
+            lineNumber = lineNumber,
+            errorMessage = exception.message ?: "Unknown error",
+        )
+
+        log.error(exception) {
+            "Worker $workerId: Failed to ingest $entity after retries: $line"
+        }
+
+        if (failFast) {
+            throw FailFastException("${entity.name} processing failed: ${exception.message}")
+        }
+    }
+
+    private suspend fun updateProgressMetrics(
+        ingestionId: String,
+        metrics: IngestionMetrics,
+    ) {
+        val snapshot = metrics.snapshot()
+        ingestRepository.updateProgress(
+            ingestionId = ingestionId,
+            productsParsed = snapshot.productsParsed,
+            productsIngested = snapshot.productsIngested,
+            productsFailed = snapshot.productsFailed,
+            productsDeduplicated = snapshot.productsDeduplicated,
+            discountsParsed = snapshot.discountsParsed,
+            discountsIngested = snapshot.discountsIngested,
+            discountsFailed = snapshot.discountsFailed,
+            discountsDeduplicated = snapshot.discountsDeduplicated,
+            errors = snapshot.errorSamples,
+        )
+    }
+
+    private suspend fun updateFinalProgress(
+        ingestionId: String,
+        metrics: IngestionMetrics,
+        filesDiscovered: Int,
+        filesProcessed: Int,
+    ) {
+        val snapshot = metrics.snapshot()
+        ingestRepository.updateProgress(
+            ingestionId = ingestionId,
+            filesDiscovered = filesDiscovered,
+            filesProcessed = filesProcessed,
+            productsParsed = snapshot.productsParsed,
+            productsIngested = snapshot.productsIngested,
+            productsFailed = snapshot.productsFailed,
+            productsDeduplicated = snapshot.productsDeduplicated,
+            discountsParsed = snapshot.discountsParsed,
+            discountsIngested = snapshot.discountsIngested,
+            discountsFailed = snapshot.discountsFailed,
+            discountsDeduplicated = snapshot.discountsDeduplicated,
+            errors = snapshot.errorSamples,
+        )
     }
 
     private fun IngestionDto.toResponse(): IngestResponse =
@@ -449,7 +528,7 @@ class IngestService(
             mode = this.mode,
             workers = this.workers,
             chunkSize = this.chunkSize,
-            dryRun = false,
+            dryRun = this.dryRun,
             ingestionId = this.ingestionId,
             status = this.status,
         )
@@ -470,6 +549,20 @@ class IngestService(
 
     private fun IngestionSummaryDto.toResponse(): IngestionSummary =
         IngestionSummary(this.parsed, this.ingested, this.failed, this.deduplicated)
+
+    private fun generateIngestionId(): String {
+        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+        return "ing-${now.year}${now.monthNumber.toString().padStart(2, '0')}${
+            now.dayOfMonth.toString().padStart(2, '0')
+        }-" +
+            "${
+                now.hour.toString().padStart(
+                    2,
+                    '0',
+                )
+            }${now.minute.toString().padStart(2, '0')}${now.second.toString().padStart(2, '0')}-" +
+            (0..999999).random().toString(16)
+    }
 
     companion object {
         private val log = KotlinLogging.logger { }
