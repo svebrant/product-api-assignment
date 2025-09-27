@@ -29,8 +29,8 @@ fun Application.configureDependencyInjection(
 
     val repositoryModule =
         module {
-            single { ProductRepository(get(), get(named(MONGO_PRODUCT_COLLECTION))) }
-            single { IngestRepository(get(), get(named(MONGO_INGEST_COLLECTION))) }
+            single { ProductRepository(get(named(MONGO_PRODUCT_COLLECTION))) }
+            single { IngestRepository(get(named(MONGO_INGEST_COLLECTION))) }
         }
 
     startKoin {

@@ -8,7 +8,7 @@ data class IngestResponse(
     val startedAt: LocalDateTime,
     val mode: IngestMode,
     val workers: Int,
-    val chuckSize: Int,
+    val chunkSize: Int,
     val dryRun: Boolean,
     val ingestionId: String,
     val status: IngestStatus,

@@ -2,7 +2,6 @@ package com.svebrant.repository
 
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Filters.eq
-import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.model.Filters.and
 import com.svebrant.model.product.Country
@@ -15,12 +14,9 @@ import org.bson.types.ObjectId
 import org.koin.core.component.KoinComponent
 
 class ProductRepository(
-    private val client: MongoClient,
     private val productsCollection: MongoCollection<ProductDto>,
 ) : KoinComponent {
     suspend fun save(productRequest: ProductRequest): ProductDto? {
-        val session = client.startSession()
-
         val productToInsert =
             ProductDto(
                 productId = productRequest.id,
@@ -30,17 +26,14 @@ class ProductRepository(
             )
 
         try {
-            session.startTransaction()
             log.debug { "Saving $productRequest" }
             val result = productsCollection.insertOne(productToInsert)
 
             val created = result.insertedId?.let { productToInsert.copy(id = it.asObjectId().value) }
 
-            session.commitTransaction()
             return created
         } catch (e: Exception) {
             log.error(e) { "Error saving product $productRequest" }
-            session.abortTransaction()
             return null
         }
     }

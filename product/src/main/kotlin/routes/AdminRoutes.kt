@@ -24,7 +24,13 @@ fun Route.adminRoutes() {
                 status = HttpStatusCode.BadRequest,
             )
 
-        call.respondText("Ingestion status")
+        val response =
+            ingestService.getIngestionStatus(id) ?: return@get call.respondText(
+                "Ingestion not found",
+                status = HttpStatusCode.NotFound,
+            )
+
+        call.respond(response)
     }
 
     post("/admin/ingest") {
@@ -32,17 +38,9 @@ fun Route.adminRoutes() {
             val ingestRequest = call.receive<IngestRequest>()
             ingestRequest.validate()
 
-            println("Received product: $ingestRequest")
-            val productId = ingestService.createIngestJob(ingestRequest)
+            val response = ingestService.createIngestJob(ingestRequest)
 
-//            if (productId == null) {
-//                return@post call.respondText(
-//                    "Failed to save product",
-//                    status = HttpStatusCode.InternalServerError,
-//                )
-//            }
-
-            call.respond("Ingestion started")
+            call.respond(response)
         } catch (e: IllegalArgumentException) {
             call.respondText(
                 e.message ?: "Invalid request",

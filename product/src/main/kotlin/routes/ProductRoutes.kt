@@ -63,7 +63,6 @@ fun Route.productRoutes() {
             val productRequest = call.receive<ProductRequest>()
             productRequest.validate()
 
-            println("Received product: $productRequest")
             val productId = productService.create(productRequest)
 
             if (productId == null) {
