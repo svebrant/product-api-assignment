@@ -13,13 +13,13 @@ import org.koin.dsl.module
 const val MONGO_PRODUCT_COLLECTION = "productCollection"
 const val MONGO_INGEST_COLLECTION = "ingestCollection"
 
-val mongoModule =
+fun mongoModule(mongoDbConnectionString: String) =
     module {
         single<MongoClient> {
             val settings =
                 MongoClientSettings
                     .builder()
-                    .applyConnectionString(ConnectionString("mongodb://localhost:27017"))
+                    .applyConnectionString(ConnectionString(mongoDbConnectionString))
                     .build()
             MongoClient.create(settings)
         }

@@ -32,7 +32,7 @@ class ProductServiceTest : KoinTest {
                     single { mockCollection }
                     single { mockClient }
                     single { ProductService(get()) }
-                    single { ProductRepository(get(), get()) }
+                    single { ProductRepository(get()) }
                 },
             )
         }

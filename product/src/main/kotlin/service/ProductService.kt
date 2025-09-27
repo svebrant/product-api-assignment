@@ -1,6 +1,8 @@
 package com.svebrant.service
 
 import com.svebrant.configuration.VAT_RATES
+import com.svebrant.exception.DuplicateEntryException
+import com.svebrant.exception.ValidationErrorException
 import com.svebrant.model.product.Country
 import com.svebrant.model.product.ProductRequest
 import com.svebrant.model.product.ProductResponse
@@ -42,10 +44,17 @@ class ProductService(
     }
 
     suspend fun create(productRequest: ProductRequest): String? {
-        // log.info { "Creating product: $productRequest" }
-        val saved = repository.save(productRequest)
-        // log.info { "Saved product: $saved" }
-        return saved?.productId
+        return try {
+            val saved = repository.save(productRequest)
+            return saved?.productId
+        } catch (e: DuplicateEntryException) {
+            throw e
+        } catch (e: ValidationErrorException) {
+            throw e
+        } catch (e: Exception) {
+            log.error(e) { "Error creating product: ${e.message}" }
+            throw e
+        }
     }
 
     // TODO apply discount ontop of the taxedPrice. discount must be retrieved from discount service

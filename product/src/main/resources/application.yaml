@@ -1,6 +1,9 @@
 service:
   name: product-service
 
+mongodb:
+  uri: "mongodb://localhost:27017"
+
 ingest:
   productsFilePath: "/data/products.ndjson"
   discountsFilePath: "/data/discounts.ndjson"

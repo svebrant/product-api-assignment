@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 data class IngestionStatusResponse(
     val ingestionId: String,
     val status: IngestStatus,
+    val dryRun: Boolean,
     val filesDiscovered: Int = 0,
     val filesProcessed: Int = 0,
     val products: IngestionSummary? = null,

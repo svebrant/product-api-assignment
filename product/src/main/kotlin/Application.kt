@@ -5,6 +5,7 @@ import com.svebrant.configuration.configureDependencyInjection
 import com.svebrant.configuration.configureHttp
 import com.svebrant.configuration.configureLogging
 import com.svebrant.configuration.configureRoutes
+import com.svebrant.configuration.configureSchedulers
 import com.svebrant.configuration.configureSerialization
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.server.application.Application
@@ -24,6 +25,7 @@ fun Application.module() {
     val appName = appConfig.property("service.name").getString()
     val productsIngestFilePath = appConfig.property("ingest.productsFilePath").getString()
     val discountsIngestFilePath = appConfig.property("ingest.discountsFilePath").getString()
+    val mongoDbConnectionString = System.getenv("mongodb.uri") ?: appConfig.property("mongodb.uri").getString()
     val log = KotlinLogging.logger { }
 
     log.info { "Starting app $appName" }
@@ -32,7 +34,8 @@ fun Application.module() {
     configureAuthentication()
     configureRoutes()
     configureLogging()
-    configureDependencyInjection(productsIngestFilePath, discountsIngestFilePath)
+    configureDependencyInjection(productsIngestFilePath, discountsIngestFilePath, mongoDbConnectionString)
     configureHttp()
     configureSerialization()
+    configureSchedulers()
 }

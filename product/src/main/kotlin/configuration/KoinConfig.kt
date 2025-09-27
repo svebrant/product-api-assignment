@@ -14,6 +14,7 @@ import org.koin.dsl.module
 fun Application.configureDependencyInjection(
     productsIngestFilePath: String,
     discountsIngestFilePath: String,
+    mongoDbConnectionString: String,
 ) {
     val clientModule =
         module {
@@ -34,6 +35,6 @@ fun Application.configureDependencyInjection(
         }
 
     startKoin {
-        modules(mongoModule, repositoryModule, serviceModule, clientModule)
+        modules(mongoModule(mongoDbConnectionString), repositoryModule, serviceModule, clientModule)
     }
 }

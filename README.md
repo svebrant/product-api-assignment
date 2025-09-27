@@ -29,6 +29,12 @@ Stop the services with
 make stop 
 ```
 
+Reset the services (including db storage) with
+
+```bash
+make stop-reset 
+```
+
 # When running locally
 
 The product service will be available at [localhost:8050](http://localhost:8050)

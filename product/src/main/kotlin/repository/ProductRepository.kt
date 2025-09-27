@@ -4,8 +4,11 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.model.Filters.and
+import com.svebrant.exception.DuplicateEntryException
+import com.svebrant.exception.ValidationErrorException
 import com.svebrant.model.product.Country
 import com.svebrant.model.product.ProductRequest
+import com.svebrant.model.product.validate
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.firstOrNull
@@ -17,22 +20,30 @@ class ProductRepository(
     private val productsCollection: MongoCollection<ProductDto>,
 ) : KoinComponent {
     suspend fun save(productRequest: ProductRequest): ProductDto? {
-        val productToInsert =
-            ProductDto(
-                productId = productRequest.id,
-                name = productRequest.name,
-                basePrice = productRequest.basePrice,
-                country = productRequest.country.name,
-            )
-
         try {
+            productRequest.validate()
+            val productToInsert =
+                ProductDto(
+                    productId = productRequest.id,
+                    name = productRequest.name,
+                    basePrice = productRequest.basePrice,
+                    country = productRequest.country.name,
+                )
+
             log.debug { "Saving $productRequest" }
             val result = productsCollection.insertOne(productToInsert)
 
             val created = result.insertedId?.let { productToInsert.copy(id = it.asObjectId().value) }
 
             return created
+        } catch (e: IllegalArgumentException) {
+            throw ValidationErrorException(
+                "validation error for product with productid ${productRequest.id} : ${e.message}",
+            )
         } catch (e: Exception) {
+            if (e.message?.contains("E11000 duplicate key error") == true) {
+                throw DuplicateEntryException("duplicate product with productId ${productRequest.id}")
+            }
             log.error(e) { "Error saving product $productRequest" }
             return null
         }

@@ -13,11 +13,6 @@ import io.ktor.server.routing.post
 import org.koin.ktor.ext.inject
 import kotlin.getValue
 
-const val PARAM_COUNTRY = "country"
-const val PARAM_LIMIT = "limit"
-const val PARAM_OFFSET = "offset"
-const val PARAM_SORT_ORDER = "sortOrder"
-
 fun Route.productRoutes() {
     val productService: ProductService by inject<ProductService>()
 

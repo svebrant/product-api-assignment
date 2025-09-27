@@ -1,4 +1,4 @@
-.PHONY: all build fmt lint build-product format-product lint-product start stop stop-reset help
+.PHONY: all build fmt lint build-product format-product lint-product start stop stop-reset start-db stop-db stop-reset-db help
 
 DOCKER_COMPOSE := $(shell command -v docker-compose > /dev/null 2>&1 && echo docker-compose || echo "docker compose")
 
@@ -14,6 +14,9 @@ help:
 	@echo "  start          Start the Docker containers"
 	@echo "  stop           Stop the Docker containers"
 	@echo "  stop-reset     Stop the Docker containers and reset storage"
+	@echo "  start-db       Start the Docker containers (db only)"
+	@echo "  stop-db        Stop the Docker containers (db only)"
+	@echo "  stop-reset-db  Stop the Docker containers and reset storage (db only)"
 
 all: build image
 
@@ -38,10 +41,19 @@ image-product:
 	 docker build -f docker/Dockerfile.product -t svebrant-product:latest .
 
 start:
+	 $(DOCKER_COMPOSE) -f docker-compose.local.yml -f docker-compose.services.yml up
+
+start-db:
 	 $(DOCKER_COMPOSE) -f docker-compose.local.yml up
 
 stop:
+	 $(DOCKER_COMPOSE) -f docker-compose.local.yml  -f docker-compose.services.yml down
+
+stop-db:
 	 $(DOCKER_COMPOSE) -f docker-compose.local.yml down
 
 stop-reset:
+	 $(DOCKER_COMPOSE) -f docker-compose.local.yml  -f docker-compose.services.yml down -v
+
+stop-reset-db:
 	 $(DOCKER_COMPOSE) -f docker-compose.local.yml down -v
