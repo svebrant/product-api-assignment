@@ -14,6 +14,7 @@ val objectIdModule =
         contextual(ObjectId::class, ObjectIdSerializer)
     }
 
+// TODO move this to httpConfig, have a "server" module that configures everything
 fun Application.configureSerialization() {
     install(ContentNegotiation) {
         json(

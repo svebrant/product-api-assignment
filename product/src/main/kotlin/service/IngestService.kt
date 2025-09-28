@@ -423,10 +423,16 @@ class IngestService(
 
         try {
             if (!ingest.dryRun) {
-                discountService.create(parsed)
+                val discountApplicationResponse = discountService.create(parsed)
+                if (discountApplicationResponse.applied && !discountApplicationResponse.alreadyApplied) {
+                    metrics.discountsIngested.incrementAndGet()
+                } else {
+                    metrics.discountsDeduplicated.incrementAndGet()
+                    // TODO write to error sample?
+                }
             }
-            metrics.discountsIngested.incrementAndGet()
         } catch (e: DuplicateEntryException) {
+            // TODO i think this catch is never hit since deduplication is handled in service and can likely be removed
             log.debug { "Duplicate discount entry: ${e.message}" }
             if (attempt == 0) {
                 metrics.discountsDeduplicated.incrementAndGet()

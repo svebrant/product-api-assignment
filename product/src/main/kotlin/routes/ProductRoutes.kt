@@ -1,7 +1,10 @@
 package com.svebrant.routes
 
+import com.svebrant.model.discount.DiscountRequest
+import com.svebrant.model.discount.validate
 import com.svebrant.model.product.Country
 import com.svebrant.model.product.ProductRequest
+import com.svebrant.model.product.ProductWithDiscountResponse
 import com.svebrant.model.product.validate
 import com.svebrant.service.ProductService
 import io.ktor.server.request.receive
@@ -68,6 +71,28 @@ fun Route.productRoutes() {
             }
 
             call.respond(productId)
+        } catch (e: IllegalArgumentException) {
+            call.respondText(
+                e.message ?: "Invalid request",
+                status = io.ktor.http.HttpStatusCode.BadRequest,
+            )
+        }
+    }
+
+    post("/products/{id}/discount") {
+        try {
+            val id =
+                call.parameters["id"] ?: return@post call.respondText(
+                    "Missing id",
+                    status = io.ktor.http.HttpStatusCode.BadRequest,
+                )
+
+            val discountRequest = call.receive<DiscountRequest>()
+            discountRequest.validate()
+
+            val response: ProductWithDiscountResponse = productService.applyDiscount(id, discountRequest)
+
+            call.respond(response)
         } catch (e: IllegalArgumentException) {
             call.respondText(
                 e.message ?: "Invalid request",

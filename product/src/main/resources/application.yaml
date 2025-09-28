@@ -4,6 +4,10 @@ service:
 mongodb:
   uri: "mongodb://localhost:27017"
 
+http:
+  discount-client:
+    base-url: "http://localhost:8060"
+
 ingest:
   productsFilePath: "/data/products.ndjson"
   discountsFilePath: "/data/discounts.ndjson"

@@ -12,5 +12,5 @@ data class DiscountRequest(
 fun DiscountRequest.validate() {
     require(productId.isNotBlank()) { "productId must not be blank" }
     require(discountId.isNotBlank()) { "discountId must not be blank" }
-    require(percent >= 0) { "percent must be non-negative" }
+    require(percent in 0.0..100.0) { "percent must be within range 0.0 and 100.0" }
 }

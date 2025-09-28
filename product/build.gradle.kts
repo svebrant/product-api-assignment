@@ -36,6 +36,11 @@ dependencies {
     implementation("io.github.oshai", "kotlin-logging-jvm", kotlinLoggingVersion)
     implementation("ch.qos.logback", "logback-classic", logbackVersion)
 
+    implementation("io.ktor", "ktor-client-core", ktorVersion)
+    implementation("io.ktor", "ktor-client-cio", ktorVersion)
+    implementation("io.ktor", "ktor-client-content-negotiation", ktorVersion)
+    implementation("io.ktor", "ktor-client-auth", ktorVersion)
+
     implementation("io.ktor", "ktor-server-core", ktorVersion)
     implementation("io.ktor", "ktor-server-config-yaml", ktorVersion)
     implementation("io.ktor", "ktor-server-netty", ktorVersion)

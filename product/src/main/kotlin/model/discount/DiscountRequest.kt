@@ -4,13 +4,12 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class DiscountRequest(
-    val productId: String,
     val discountId: String,
     val percent: Double,
+    val productId: String = "", // Optional in requests, required for internal use TODO maybe have two separate ones?
 )
 
 fun DiscountRequest.validate() {
-    require(productId.isNotBlank()) { "productId must not be blank" }
     require(discountId.isNotBlank()) { "discountId must not be blank" }
-    require(percent >= 0) { "percent must be non-negative" }
+    require(percent in 0.0..100.0) { "percent must be within range 0.0 and 100.0" }
 }
