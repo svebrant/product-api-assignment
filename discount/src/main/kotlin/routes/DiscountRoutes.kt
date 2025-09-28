@@ -1,5 +1,6 @@
 package com.svebrant.routes
 
+import com.svebrant.model.BatchDiscountRequest
 import com.svebrant.model.DiscountApplicationResponse
 import com.svebrant.model.DiscountRequest
 import com.svebrant.model.validate
@@ -9,6 +10,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import org.koin.ktor.ext.inject
 import kotlin.getValue
@@ -27,6 +29,22 @@ fun Route.discountRoutes() {
         } catch (e: IllegalArgumentException) {
             call.respondText(
                 e.message ?: "Invalid request",
+                status = io.ktor.http.HttpStatusCode.BadRequest,
+            )
+        }
+    }
+
+    // Add batch endpoint for processing multiple discounts at once
+    post("/discounts/apply/batch") {
+        try {
+            val batchRequest = call.receive<BatchDiscountRequest>()
+            batchRequest.validate()
+
+            val response = discountService.applyDiscountBatch(batchRequest)
+            call.respond(response)
+        } catch (e: IllegalArgumentException) {
+            call.respondText(
+                e.message ?: "Invalid batch request",
                 status = io.ktor.http.HttpStatusCode.BadRequest,
             )
         }
@@ -63,5 +81,4 @@ fun Route.discountRoutes() {
             call.respondText("Discount not found", status = io.ktor.http.HttpStatusCode.NotFound)
         }
     }
-
 }

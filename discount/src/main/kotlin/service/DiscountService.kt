@@ -2,7 +2,11 @@ package com.svebrant.service
 
 import com.svebrant.exception.DuplicateEntryException
 import com.svebrant.exception.ValidationErrorException
+import com.svebrant.model.BatchDiscountApplicationResponse
+import com.svebrant.model.BatchDiscountRequest
+import com.svebrant.model.BatchSummary
 import com.svebrant.model.DiscountApplicationResponse
+import com.svebrant.model.DiscountApplicationResult
 import com.svebrant.model.DiscountRequest
 import com.svebrant.model.DiscountResponse
 import com.svebrant.repository.DiscountRepository
@@ -45,8 +49,10 @@ class DiscountService(
 
     suspend fun getByProductIds(productIds: Set<String>): Map<String, List<DiscountResponse>> {
         log.info { "Retrieving discounts by productId: $productIds" }
-        val result = repository.findByProductIds(productIds)
-            .mapValues { (_, discounts) -> discounts.map { it.mapToResponse() } }
+        val result =
+            repository
+                .findByProductIds(productIds)
+                .mapValues { (_, discounts) -> discounts.map { it.mapToResponse() } }
         log.info { "Found ${result.values.sumOf { it.size }} discounts for ${productIds.size} productIds:" }
         return result
     }
@@ -64,8 +70,72 @@ class DiscountService(
             throw e
         }
 
-    private fun DiscountDto.mapToResponse(): DiscountResponse =
-        DiscountResponse(this.productId, this.discountId, this.percent)
+    suspend fun applyDiscountBatch(batchRequest: BatchDiscountRequest): BatchDiscountApplicationResponse {
+        log.info { "Processing batch discount application with ${batchRequest.discounts.size} discounts" }
+
+        val results = mutableListOf<DiscountApplicationResult>()
+        var successful = 0
+        var failed = 0
+        var alreadyApplied = 0
+
+        // Process each discount in the batch
+        for (request in batchRequest.discounts) {
+            try {
+                val result = applyDiscountWithResult(request)
+                results.add(result)
+
+                when {
+                    result.success -> successful++
+                    result.alreadyApplied -> alreadyApplied++
+                    else -> failed++
+                }
+            } catch (e: Exception) {
+                log.error(e) { "Error processing discount: $request" }
+                val errorResult =
+                    DiscountApplicationResult(
+                        productId = request.productId,
+                        discountId = request.discountId,
+                        success = false,
+                        alreadyApplied = false,
+                        error = e.message,
+                    )
+                results.add(errorResult)
+                failed++
+            }
+        }
+
+        val summary =
+            BatchSummary(
+                total = batchRequest.discounts.size,
+                successful = successful,
+                failed = failed,
+                alreadyApplied = alreadyApplied,
+            )
+
+        log.info { "Batch processing complete. Summary: $summary" }
+        return BatchDiscountApplicationResponse(results, summary)
+    }
+
+    private suspend fun applyDiscountWithResult(request: DiscountRequest): DiscountApplicationResult =
+        try {
+            val response = applyDiscount(request)
+            DiscountApplicationResult(
+                productId = request.productId,
+                discountId = request.discountId,
+                success = response.applied,
+                alreadyApplied = response.alreadyApplied,
+            )
+        } catch (e: Exception) {
+            DiscountApplicationResult(
+                productId = request.productId,
+                discountId = request.discountId,
+                success = false,
+                alreadyApplied = false,
+                error = e.message,
+            )
+        }
+
+    private fun DiscountDto.mapToResponse(): DiscountResponse = DiscountResponse(this.productId, this.discountId, this.percent)
 
     companion object {
         private val log = KotlinLogging.logger { }

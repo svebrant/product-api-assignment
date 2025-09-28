@@ -22,16 +22,23 @@ import com.svebrant.repository.dto.IngestionSummaryDto
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
+import java.util.concurrent.ConcurrentHashMap
 
 class IngestService(
     private val ingestRepository: IngestRepository,
@@ -41,6 +48,40 @@ class IngestService(
     private val discountsFilePath: String,
 ) : KoinComponent {
     private val json = Json { ignoreUnknownKeys = true }
+
+    // SupervisorJob that will be parent to all worker coroutines
+    private val supervisorJob = SupervisorJob()
+
+    // Create a coroutine scope for worker management
+    private val workerScope = CoroutineScope(Dispatchers.Default + supervisorJob)
+
+    // Track active ingestion jobs
+    private val activeIngestionJobs = ConcurrentHashMap<String, Job>()
+
+    init {
+        // Register a shutdown hook to cancel all workers on JVM shutdown
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                log.info { "Shutting down all workers..." }
+
+                // Mark all active ingestion jobs as FAILED
+                runBlocking {
+                    activeIngestionJobs.keys().toList().forEach { ingestionId ->
+                        try {
+                            log.info { "Marking ingestion job $ingestionId as FAILED due to shutdown" }
+                            ingestRepository.updateStatus(ingestionId, IngestStatus.FAILED)
+                        } catch (e: Exception) {
+                            log.error(e) { "Failed to mark ingestion job $ingestionId as FAILED during shutdown" }
+                        }
+                    }
+                }
+
+                // Cancel all worker coroutines
+                supervisorJob.cancelChildren()
+                log.info { "All workers have been shutdown." }
+            },
+        )
+    }
 
     suspend fun createIngestJob(ingestRequest: IngestRequest): IngestResponse {
         log.info { "Received ingest request $ingestRequest" }
@@ -109,6 +150,12 @@ class IngestService(
 
         updateInitialProgress(ingestionId, filesDiscovered)
 
+        // Create a job to track this ingestion
+        val ingestionJob = Job()
+
+        // Register this job as active
+        activeIngestionJobs[ingestionId] = ingestionJob
+
         try {
             ingestRepository.updateStatus(ingestionId, IngestStatus.STARTED)
 
@@ -129,6 +176,10 @@ class IngestService(
             ingestRepository.updateStatus(ingestionId, IngestStatus.FAILED)
             log.error(e) { "Error during ingestion process for job $ingestionId" }
             throw e
+        } finally {
+            // Remove from active jobs and cancel the job
+            activeIngestionJobs.remove(ingestionId)
+            ingestionJob.cancel()
         }
     }
 
@@ -212,53 +263,241 @@ class IngestService(
         ingestionId: String,
         metrics: IngestionMetrics,
     ) {
-        coroutineScope {
+        // Use a Job to track all coroutines in this processing batch
+        val processingJob = Job()
+
+        try {
             val channel = Channel<IngestEntityData>(capacity = Channel.UNLIMITED)
 
-            launchFileReader(ingest.mode, channel)
+            val updateIntervalMs = 5000L
 
-            // Track last update time to avoid updating DB too frequently
-            var lastUpdateTime = System.currentTimeMillis()
-            val updateIntervalMs = 5000 // Update every 5 seconds
+            // Start a separate coroutine for progress tracking
+            val progressJob =
+                workerScope.launch(processingJob) {
+                    while (isActive) {
+                        delay(updateIntervalMs)
+                        updateProgressMetrics(ingestionId, metrics)
+                        log.info { "Progress update: ${metrics.getSummary(ingest.dryRun)}" }
+                    }
+                }
 
-            val workerJobs =
-                createWorkers(
-                    ingest = ingest,
-                    channel = channel,
-                    metrics = metrics,
-                    updateProgress = { currentTime ->
-                        if (currentTime - lastUpdateTime > updateIntervalMs) {
-                            // Launch a new coroutine to handle the database update
-                            launch {
-                                updateProgressMetrics(ingestionId, metrics)
-                            }
-                            lastUpdateTime = currentTime
-                        }
-                    },
-                )
+            // Launch file reader in workerScope
+            val fileReaderJob = launchFileReader(ingest, channel, processingJob)
 
-            workerJobs.joinAll()
+            if (ingest.mode == IngestMode.DISCOUNTS || ingest.mode == IngestMode.ALL) {
+                // For discounts, use batch processing
+                processDiscountsBatched(ingest, channel, metrics)
+            } else {
+                // For products only, use existing worker approach
+                val workerJobs =
+                    createWorkers(
+                        ingest = ingest,
+                        channel = channel,
+                        metrics = metrics,
+                        parentJob = processingJob,
+                    )
+
+                workerJobs.joinAll()
+            }
+
+            // Wait for file reader to finish
+            fileReaderJob.join()
+
+            // Cancel the progress tracking job once processing is complete
+            progressJob.cancel()
+
+            // One final update to ensure latest metrics are saved
+            updateProgressMetrics(ingestionId, metrics)
+        } finally {
+            // Ensure all coroutines are cancelled if something goes wrong
+            processingJob.cancel()
         }
     }
 
-    private fun CoroutineScope.launchFileReader(
-        mode: IngestMode,
+    private suspend fun processDiscountsBatched(
+        ingest: IngestionDto,
         channel: Channel<IngestEntityData>,
-    ) = launch {
-        if (mode == IngestMode.PRODUCTS || mode == IngestMode.ALL) {
-            readFileToChannel(
-                filePath = productsFilePath,
-                entity = IngestEntity.PRODUCT,
-                channel = channel,
-            )
+        metrics: IngestionMetrics,
+    ) {
+        // Buffer for collecting discount requests before sending as batch
+        val discountBatchBuffer = mutableListOf<Pair<DiscountApiRequest, IngestEntityData>>()
+
+        for (item in channel) {
+            if (item.entity == IngestEntity.DISCOUNT) {
+                try {
+                    val discountRequest = json.decodeFromString(DiscountApiRequest.serializer(), item.line)
+                    metrics.discountsParsed.incrementAndGet()
+
+                    discountBatchBuffer.add(discountRequest to item)
+
+                    // When we reach the chunk size, process the batch
+                    if (discountBatchBuffer.size >= ingest.chunkSize) {
+                        processDiscountBatch(ingest, discountBatchBuffer, metrics)
+                        discountBatchBuffer.clear()
+                    }
+                } catch (e: Exception) {
+                    // Handle parsing errors
+                    metrics.discountsFailed.incrementAndGet()
+                    metrics.addErrorSample(
+                        item.fileName,
+                        item.lineNumber,
+                        "Parsing error: ${e.message ?: "Unknown error"}",
+                        MAX_ERROR_SAMPLES,
+                    )
+
+                    if (ingest.failFast) {
+                        throw FailFastException("Failed to parse discount: ${e.message}")
+                    }
+                }
+            } else {
+                // Process products normally
+                processChannelItem(
+                    data = item,
+                    ingest = ingest,
+                    metrics = metrics,
+                    workerId = 0,
+                )
+            }
         }
 
-        if (mode == IngestMode.DISCOUNTS || mode == IngestMode.ALL) {
-            readFileToChannel(
-                filePath = discountsFilePath,
-                entity = IngestEntity.DISCOUNT,
-                channel = channel,
-            )
+        // Process remaining items in buffer
+        if (discountBatchBuffer.isNotEmpty()) {
+            processDiscountBatch(ingest, discountBatchBuffer, metrics)
+        }
+    }
+
+    private suspend fun processDiscountBatch(
+        ingest: IngestionDto,
+        discountBatch: List<Pair<DiscountApiRequest, IngestEntityData>>,
+        metrics: IngestionMetrics,
+    ) {
+        val discounts = discountBatch.map { it.first }
+        log.debug { "Processing batch of ${discounts.size} discounts" }
+
+        if (ingest.dryRun) {
+            // In dry run mode, just update metrics
+            discounts.forEach { _ ->
+                metrics.discountsIngested.incrementAndGet()
+            }
+            return
+        }
+
+        try {
+            // Send the batch request to the discount service
+            val batchResponse = discountService.createBatch(discounts)
+
+            // Process the response for each discount
+            batchResponse.results.forEachIndexed { index, result ->
+                val (_, itemData) = discountBatch[index]
+
+                when {
+                    result.success -> {
+                        metrics.discountsIngested.incrementAndGet()
+                    }
+                    result.alreadyApplied -> {
+                        metrics.discountsDeduplicated.incrementAndGet()
+                        val message = "Duplicate discount with composite key ${result.productId}-${result.discountId}"
+                        metrics.addErrorSample(
+                            itemData.fileName,
+                            itemData.lineNumber,
+                            message,
+                            MAX_ERROR_SAMPLES,
+                        )
+
+                        if (ingest.failFast) {
+                            throw FailFastException(message)
+                        }
+                    }
+                    else -> {
+                        metrics.discountsFailed.incrementAndGet()
+                        val errorMessage = result.error ?: "Unknown error"
+                        metrics.addErrorSample(
+                            itemData.fileName,
+                            itemData.lineNumber,
+                            errorMessage,
+                            MAX_ERROR_SAMPLES,
+                        )
+
+                        if (ingest.failFast) {
+                            throw FailFastException(errorMessage)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // If the batch request fails completely
+            log.error(e) { "Error processing discount batch of size ${discounts.size}: ${e.message}" }
+
+            // Mark all items in batch as failed
+            discountBatch.forEach { (_, itemData) ->
+                metrics.discountsFailed.incrementAndGet()
+                metrics.addErrorSample(
+                    itemData.fileName,
+                    itemData.lineNumber,
+                    "Batch processing error: ${e.message ?: "Unknown error"}",
+                    MAX_ERROR_SAMPLES,
+                )
+            }
+
+            if (ingest.failFast) {
+                throw FailFastException("Failed to process discount batch: ${e.message}")
+            }
+        }
+    }
+
+    private fun launchFileReader(
+        ingestion: IngestionDto,
+        channel: Channel<IngestEntityData>,
+        parentJob: Job,
+    ) = workerScope.launch(parentJob) {
+        val mode = ingestion.mode
+
+        // Process products and discounts in parallel if mode is ALL
+        if (mode == IngestMode.ALL) {
+            // Launch parallel coroutines for reading each file
+            val jobs = mutableListOf<Job>()
+
+            val productsJob =
+                launch {
+                    readFileToChannel(
+                        filePath = productsFilePath,
+                        entity = IngestEntity.PRODUCT,
+                        channel = channel,
+                        ingest = ingestion,
+                    )
+                    log.info { "Completed reading products file" }
+                }
+            jobs.add(productsJob)
+
+            val discountsJob =
+                launch {
+                    readFileToChannel(
+                        filePath = discountsFilePath,
+                        entity = IngestEntity.DISCOUNT,
+                        channel = channel,
+                        ingest = ingestion,
+                    )
+                    log.info { "Completed reading discounts file" }
+                }
+            jobs.add(discountsJob)
+
+            jobs.joinAll()
+        } else {
+            if (mode == IngestMode.PRODUCTS) {
+                readFileToChannel(
+                    filePath = productsFilePath,
+                    entity = IngestEntity.PRODUCT,
+                    channel = channel,
+                    ingest = ingestion,
+                )
+            } else if (mode == IngestMode.DISCOUNTS) {
+                readFileToChannel(
+                    filePath = discountsFilePath,
+                    entity = IngestEntity.DISCOUNT,
+                    channel = channel,
+                    ingest = ingestion,
+                )
+            }
         }
 
         channel.close()
@@ -268,32 +507,87 @@ class IngestService(
         filePath: String,
         entity: IngestEntity,
         channel: Channel<IngestEntityData>,
+        ingest: IngestionDto,
     ) {
         val inputStream =
             this::class.java.getResourceAsStream(filePath)
-                ?: return
+                ?: run {
+                    log.error { "Resource not found: $filePath" }
+                    return
+                }
 
-        inputStream.bufferedReader().use { reader ->
-            reader.lineSequence().forEachIndexed { index, line ->
-                channel.send(
-                    IngestEntityData(
-                        entity = entity,
-                        line = line,
-                        lineNumber = index,
-                        fileName = filePath,
-                    ),
-                )
+        log.info { "Starting to read file $filePath with chunkSize ${ingest.chunkSize}" }
+        val startTime = System.currentTimeMillis()
+        var lastLogTime = startTime
+        val logIntervalMs = 10_000 // Log every 10 seconds
+
+        val batchSize = ingest.chunkSize * 4 // Fixed multiplier for consistent batch sizes
+
+        val atomicLineCount =
+            java.util.concurrent.atomic
+                .AtomicInteger(0)
+
+        withContext(Dispatchers.IO) {
+            inputStream.bufferedReader().use { reader ->
+                val lines = reader.lineSequence()
+                val chunkedLines = lines.chunked(batchSize)
+
+                for (batch in chunkedLines) {
+                    if (!isActive) break
+
+                    // Process the batch in parallel using smaller chunks
+                    val chunks = batch.chunked(ingest.chunkSize)
+
+                    // Process each chunk sequentially for controlled memory usage
+                    for (chunk in chunks) {
+                        // Send lines to channel in bulk for better performance
+                        chunk.forEach { line ->
+                            val currentLineNumber = atomicLineCount.getAndIncrement()
+
+                            channel.send(
+                                IngestEntityData(
+                                    entity = entity,
+                                    line = line,
+                                    lineNumber = currentLineNumber,
+                                    fileName = filePath,
+                                ),
+                            )
+                        }
+
+                        // Log progress at regular intervals
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastLogTime >= logIntervalMs) {
+                            val currentCount = atomicLineCount.get()
+                            val elapsed = currentTime - startTime
+                            val linesPerSecond = if (elapsed > 0) (currentCount * 1000.0 / elapsed).toInt() else 0
+                            val elapsedSeconds = elapsed / 1000
+                            log.info { "Read $currentCount lines from $filePath ($linesPerSecond lines/sec, elapsed: ${elapsedSeconds}s)" }
+                            lastLogTime = currentTime
+                        }
+
+                        yield()
+                    }
+                }
             }
+        }
+
+        val totalCount = atomicLineCount.get()
+        val totalTime = (System.currentTimeMillis() - startTime) / 1000
+        log.info {
+            "Finished reading $totalCount lines from $filePath in ${totalTime}s (avg: ${if (totalTime > 0) totalCount / totalTime else totalCount} lines/sec)"
         }
     }
 
-    private fun CoroutineScope.createWorkers(
+    private fun createWorkers(
         ingest: IngestionDto,
         channel: Channel<IngestEntityData>,
         metrics: IngestionMetrics,
-        updateProgress: (Long) -> Unit,
+        parentJob: Job,
     ) = List(ingest.workers) { workerId ->
-        launch(Dispatchers.IO) {
+        // Use Dispatchers.IO.limitedParallelism for better control or virtual threads if available
+        val virtualThreadDispatcher = Dispatchers.IO.limitedParallelism(ingest.workers * 2)
+
+        workerScope.launch(virtualThreadDispatcher + parentJob) {
             for (data in channel) {
                 processChannelItem(
                     data = data,
@@ -301,8 +595,6 @@ class IngestService(
                     metrics = metrics,
                     workerId = workerId,
                 )
-
-                updateProgress(System.currentTimeMillis())
             }
         }
     }
