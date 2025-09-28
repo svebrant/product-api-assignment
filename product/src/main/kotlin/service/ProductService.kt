@@ -1,6 +1,5 @@
 package com.svebrant.service
 
-import com.svebrant.configuration.VAT_RATES
 import com.svebrant.exception.DuplicateEntryException
 import com.svebrant.exception.ValidationErrorException
 import com.svebrant.model.discount.DiscountRequest
@@ -8,6 +7,7 @@ import com.svebrant.model.product.Country
 import com.svebrant.model.product.ProductRequest
 import com.svebrant.model.product.ProductResponse
 import com.svebrant.model.product.ProductWithDiscountResponse
+import com.svebrant.model.product.VAT_RATES
 import com.svebrant.repository.ProductRepository
 import com.svebrant.repository.dto.ProductDto
 import io.github.oshai.kotlinlogging.KotlinLogging

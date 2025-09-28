@@ -8,6 +8,10 @@ http:
   discount-client:
     base-url: "http://localhost:8060"
 
+auth:
+  bearer:
+    token: "secret-dev-token-please-change"
+
 ingest:
   productsFilePath: "/data/products.ndjson"
   discountsFilePath: "/data/discounts.ndjson"

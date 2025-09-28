@@ -19,3 +19,10 @@ enum class Country(
                 .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
                 .replace("_", " ")
 }
+
+val VAT_RATES: Map<Country, Double> =
+    mapOf(
+        Country.SWEDEN to 0.25,
+        Country.GERMANY to 0.19,
+        Country.FRANCE to 0.20,
+    )

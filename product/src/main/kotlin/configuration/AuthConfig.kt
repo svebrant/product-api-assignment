@@ -6,13 +6,11 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.bearer
 
-fun Application.configureAuthentication() {
-    val expectedToken = System.getenv("AUTH_TOKEN") ?: "secret-dev-token-please-change"
-
+fun Application.configureAuthentication(bearerToken: String) {
     install(Authentication) {
         bearer("auth-bearer") {
             authenticate { tokenCredential ->
-                if (tokenCredential.token == expectedToken) {
+                if (tokenCredential.token == bearerToken) {
                     UserIdPrincipal("authenticated-user")
                 } else {
                     null

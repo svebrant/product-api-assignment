@@ -4,6 +4,10 @@ service:
 mongodb:
   uri: "mongodb://localhost:27027"
 
+auth:
+  bearer:
+    token: "secret-dev-token-please-change"
+
 ktor:
   application:
     modules:

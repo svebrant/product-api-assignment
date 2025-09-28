@@ -6,51 +6,28 @@ import com.svebrant.repository.ProductRepository
 import com.svebrant.service.DiscountService
 import com.svebrant.service.IngestService
 import com.svebrant.service.ProductService
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.auth.Auth
-import io.ktor.client.plugins.auth.providers.BearerTokens
-import io.ktor.client.plugins.auth.providers.bearer
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
-import kotlinx.serialization.json.Json
+import io.ktor.server.config.ApplicationConfig
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 fun Application.configureDependencyInjection(
-    productsIngestFilePath: String,
-    discountsIngestFilePath: String,
-    mongoDbConnectionString: String,
+    appConfig: ApplicationConfig,
+    bearerToken: String,
 ) {
+    val productsIngestFilePath = appConfig.property("ingest.productsFilePath").getString()
+    val discountsIngestFilePath = appConfig.property("ingest.discountsFilePath").getString()
+    val mongoDbConnectionString = System.getenv("mongodb.uri") ?: appConfig.property("mongodb.uri").getString()
+
     val discountServiceUrl =
         System.getenv("http.discount-client.base-url")
-            ?: environment.config.propertyOrNull("http.discount-client.base-url")?.getString()
-            ?: throw Exception("Discount service base URL not configured")
+            ?: appConfig.property("http.discount-client.base-url").getString()
 
-    val expectedToken = System.getenv("AUTH_TOKEN") ?: "secret-dev-token-please-change"
     val httpClientModule =
         module {
             single {
-                HttpClient(CIO) {
-                    install(ContentNegotiation) {
-                        json(
-                            Json {
-                                prettyPrint = true
-                                isLenient = true
-                                ignoreUnknownKeys = false
-                            },
-                        )
-                    }
-                    install(Auth) {
-                        bearer {
-                            loadTokens {
-                                BearerTokens(expectedToken, expectedToken)
-                            }
-                        }
-                    }
-                }
+                configureHttpClient(bearerToken)
             }
         }
 
