@@ -346,6 +346,7 @@ class IngestService(
                     )
 
                     if (ingest.failFast) {
+                        metrics.discountsFailed.incrementAndGet()
                         throw FailFastException("Failed to parse discount: ${e.message}")
                     }
                 }
@@ -405,6 +406,7 @@ class IngestService(
                         )
 
                         if (ingest.failFast) {
+                            metrics.discountsFailed.incrementAndGet()
                             throw FailFastException(message)
                         }
                     }
@@ -419,6 +421,7 @@ class IngestService(
                         )
 
                         if (ingest.failFast) {
+                            metrics.discountsFailed.incrementAndGet()
                             throw FailFastException(errorMessage)
                         }
                     }
@@ -440,6 +443,7 @@ class IngestService(
             }
 
             if (ingest.failFast) {
+                metrics.discountsFailed.incrementAndGet()
                 throw FailFastException("Failed to process discount batch: ${e.message}")
             }
         }
@@ -686,6 +690,7 @@ class IngestService(
             }
             metrics.addErrorSample(fileName, lineNumber, e.message ?: "Duplicate product", MAX_ERROR_SAMPLES)
             if (ingest.failFast) {
+                metrics.productsFailed.incrementAndGet()
                 throw FailFastException("Duplicate product: ${e.message}")
             }
         } catch (e: ValidationErrorException) {
@@ -695,6 +700,7 @@ class IngestService(
             }
             metrics.addErrorSample(fileName, lineNumber, e.message ?: "Validation error", MAX_ERROR_SAMPLES)
             if (ingest.failFast) {
+                metrics.productsFailed.incrementAndGet()
                 throw FailFastException("Product validation error: ${e.message}")
             }
         }
@@ -729,6 +735,7 @@ class IngestService(
                         MAX_ERROR_SAMPLES,
                     )
                     if (ingest.failFast) {
+                        metrics.discountsFailed.incrementAndGet()
                         throw FailFastException(duplicationMessage)
                     }
                 }
@@ -740,6 +747,7 @@ class IngestService(
             }
             metrics.addErrorSample(fileName, lineNumber, e.message ?: "Validation error", MAX_ERROR_SAMPLES)
             if (ingest.failFast) {
+                metrics.discountsFailed.incrementAndGet()
                 throw FailFastException("Discount validation error: ${e.message}")
             }
         }
@@ -774,6 +782,10 @@ class IngestService(
         }
 
         if (failFast) {
+            when (entity) {
+                IngestEntity.PRODUCT -> metrics.productsFailed.incrementAndGet()
+                IngestEntity.DISCOUNT -> metrics.discountsFailed.incrementAndGet()
+            }
             throw FailFastException("${entity.name} processing failed: ${exception.message}")
         }
     }

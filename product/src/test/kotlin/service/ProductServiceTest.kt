@@ -4,6 +4,7 @@ import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.svebrant.repository.ProductRepository
 import com.svebrant.repository.dto.ProductDto
+import com.svebrant.service.DiscountService
 import com.svebrant.service.ProductService
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.mockk.mockk
@@ -20,7 +21,8 @@ class ProductServiceTest : KoinTest {
     val productService: ProductService by inject()
     val repository: ProductRepository by inject()
 
-    private val mockClient = mockk<MongoClient>(relaxed = true)
+    private val mockClient: MongoClient = mockk<MongoClient>(relaxed = true)
+    private val mockDiscountService = mockk<DiscountService>(relaxed = true)
     private val mockCollection = mockk<MongoCollection<ProductDto>>(relaxed = true)
 
     @BeforeEach
@@ -31,7 +33,8 @@ class ProductServiceTest : KoinTest {
                 module {
                     single { mockCollection }
                     single { mockClient }
-                    single { ProductService(get()) }
+                    single { DiscountService(get()) }
+                    single { ProductService(mockDiscountService, get()) }
                     single { ProductRepository(get()) }
                 },
             )

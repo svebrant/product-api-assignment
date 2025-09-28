@@ -50,7 +50,7 @@ image-product:
 	 docker build -f docker/Dockerfile.product -t svebrant-product:latest .
 
 image-discount:
-	 docker build -f docker/Dockerfile.discount -t svebrant-product:latest .
+	 docker build -f docker/Dockerfile.discount -t svebrant-discount:latest .
 
 start:
 	 $(DOCKER_COMPOSE) -f docker-compose.db.yml -f docker-compose.services.yml up

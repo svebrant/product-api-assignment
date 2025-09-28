@@ -16,7 +16,7 @@ class DiscountService(
     suspend fun create(discount: DiscountApiRequest): DiscountApplicationResponse {
         try {
             discount.validate()
-            log.debug { "Creating discount: $discount" }
+            log.info { "Creating discount: $discount" }
             return try {
                 val saved = discountClient.createRequest(discount)
                 saved
@@ -41,7 +41,7 @@ class DiscountService(
      */
     suspend fun createBatch(discounts: List<DiscountApiRequest>): BatchDiscountApplicationResponse {
         if (discounts.isEmpty()) {
-            log.debug { "No discounts to process in batch" }
+            log.info { "No discounts to process in batch" }
             return BatchDiscountApplicationResponse(
                 results = emptyList(),
                 summary =
@@ -83,15 +83,25 @@ class DiscountService(
     }
 
     suspend fun getDiscountsForProduct(productId: String): List<DiscountResponse> {
-        log.debug { "Getting discounts for product: $productId" }
+        log.info { "Getting discounts for product: $productId" }
         return try {
             val discounts = discountClient.getDiscounts(productId)
-            log.debug { "Found ${discounts.size} discounts for product $productId" }
+            log.info { "Found ${discounts.size} discounts for product $productId" }
             discounts
         } catch (e: Exception) {
             log.error(e) { "Error retrieving discounts for product $productId: ${e.message}" }
-            // Return empty list in case of error to avoid cascading failures
             emptyList()
+        }
+    }
+
+    suspend fun getDiscountsForProduct(productIds: Set<String>): Map<String, List<DiscountResponse>> {
+        log.info { "Getting discounts for ${productIds.size} productIds" }
+        return try {
+            val discounts = discountClient.getDiscountsByProductIds(productIds)
+            discounts
+        } catch (e: Exception) {
+            log.error(e) { "Error retrieving discounts for ${productIds.size} productIds: ${e.message}" }
+            emptyMap()
         }
     }
 

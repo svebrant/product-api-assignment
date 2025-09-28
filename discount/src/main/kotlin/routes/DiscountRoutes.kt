@@ -3,8 +3,10 @@ package com.svebrant.routes
 import com.svebrant.model.BatchDiscountRequest
 import com.svebrant.model.DiscountApplicationResponse
 import com.svebrant.model.DiscountRequest
+import com.svebrant.model.GetDiscountsByProductIdsRequest
 import com.svebrant.model.validate
 import com.svebrant.service.DiscountService
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
@@ -13,8 +15,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import org.koin.ktor.ext.inject
-import kotlin.getValue
-import kotlin.text.toIntOrNull
 
 fun Route.discountRoutes() {
     val discountService: DiscountService by inject<DiscountService>()
@@ -29,7 +29,7 @@ fun Route.discountRoutes() {
         } catch (e: IllegalArgumentException) {
             call.respondText(
                 e.message ?: "Invalid request",
-                status = io.ktor.http.HttpStatusCode.BadRequest,
+                status = HttpStatusCode.BadRequest,
             )
         }
     }
@@ -45,7 +45,7 @@ fun Route.discountRoutes() {
         } catch (e: IllegalArgumentException) {
             call.respondText(
                 e.message ?: "Invalid batch request",
-                status = io.ktor.http.HttpStatusCode.BadRequest,
+                status = HttpStatusCode.BadRequest,
             )
         }
     }
@@ -72,13 +72,35 @@ fun Route.discountRoutes() {
         val productId =
             call.parameters["productId"] ?: return@get call.respondText(
                 "Missing id",
-                status = io.ktor.http.HttpStatusCode.BadRequest,
+                status = HttpStatusCode.BadRequest,
             )
         val discounts = discountService.getByProductId(productId)
         if (discounts.isNotEmpty()) {
             call.respond(discounts)
         } else {
-            call.respondText("Discount not found", status = io.ktor.http.HttpStatusCode.NotFound)
+            call.respondText("Discount not found", status = HttpStatusCode.NotFound)
+        }
+    }
+
+    get("/discounts/byProductIds/{productIds}") {
+        try {
+            val productIds = call.receive<GetDiscountsByProductIdsRequest>().productIds
+
+            if (productIds.isEmpty()) {
+                call.respondText(
+                    "Product IDs list cannot be empty",
+                    status = HttpStatusCode.BadRequest,
+                )
+                return@get
+            }
+
+            val discountsMap = discountService.getByProductIds(productIds)
+            call.respond(discountsMap)
+        } catch (e: Exception) {
+            call.respondText(
+                e.message ?: "Error processing request",
+                status = HttpStatusCode.BadRequest,
+            )
         }
     }
 }

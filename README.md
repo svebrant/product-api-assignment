@@ -38,5 +38,6 @@ make stop-reset
 # When running locally
 
 The product service will be available at [localhost:8050](http://localhost:8050)
+The discount service will be available at [localhost:8060](http://localhost:8060)
 
 

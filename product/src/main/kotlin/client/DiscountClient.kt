@@ -7,6 +7,7 @@ import com.svebrant.model.discount.BatchDiscountRequest
 import com.svebrant.model.discount.DiscountApiRequest
 import com.svebrant.model.discount.DiscountApplicationResponse
 import com.svebrant.model.discount.DiscountResponse
+import com.svebrant.model.discount.GetDiscountsByProductIdsRequest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -25,7 +26,7 @@ class DiscountClient(
     private val httpClient: HttpClient,
 ) : KoinComponent {
     suspend fun createRequest(discount: DiscountApiRequest): DiscountApplicationResponse {
-        log.debug { "Applying discount: $discount to the discount service" }
+        log.info { "Applying discount: $discount to the discount service" }
         try {
             val response =
                 httpClient.put("$baseUrl/discounts/apply") {
@@ -42,7 +43,7 @@ class DiscountClient(
 
     suspend fun createBatchRequest(discounts: List<DiscountApiRequest>): BatchDiscountApplicationResponse {
         if (discounts.isEmpty()) {
-            log.debug { "No discounts to apply in batch" }
+            log.info { "No discounts to apply in batch" }
             return BatchDiscountApplicationResponse(
                 emptyList(),
                 com.svebrant.model.discount
@@ -69,7 +70,7 @@ class DiscountClient(
     }
 
     suspend fun getDiscounts(productId: String): List<DiscountResponse> {
-        log.debug { "Retrieving discounts for product: $productId from the discount service" }
+        log.info { "Retrieving discounts for product: $productId from the discount service" }
         try {
             val response =
                 httpClient.get("$baseUrl/discounts/$productId") {
@@ -80,6 +81,24 @@ class DiscountClient(
             log.error(e) { "Error retrieving discounts for product $productId: ${e.message}" }
             // In case of error, return empty list instead of failing
             return emptyList()
+        }
+    }
+
+    suspend fun getDiscountsByProductIds(productIds: Set<String>): Map<String, List<DiscountResponse>> {
+        log.info { "Retrieving discounts for product: $productIds from the discount service" }
+        try {
+            val request = GetDiscountsByProductIdsRequest(productIds)
+            val response =
+                httpClient.get("$baseUrl/discounts/byProductIds") {
+                    header(HEADER_REQUEST_ID, MDC.get(MDC_KEY_REQUEST_ID))
+                    setBody(request)
+                }
+            println("Response: $response")
+            return response.body()
+        } catch (e: Exception) {
+            log.error(e) { "Error retrieving discounts for product $productIds: ${e.message}" }
+            // In case of error, return empty list instead of failing
+            return emptyMap()
         }
     }
 

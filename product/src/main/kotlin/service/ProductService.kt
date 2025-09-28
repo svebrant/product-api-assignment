@@ -29,12 +29,12 @@ class ProductService(
 
         val products = repository.find(country = country, limit = limit, offset = offset, sortOrder = sortOrder)
 
-        // For each product, fetch discounts and map to response with discounts
-        // TODO improve performance by fetching discounts as a batch
+        val discountsPerProductIds: Map<String, List<DiscountResponse>> =
+            discountService.getDiscountsForProduct(products.map { it.productId }.toSet())
+
         val result =
             products.map { product ->
-                val discounts = discountService.getDiscountsForProduct(product.productId)
-                product.mapToResponse(discounts)
+                product.mapToResponse(discountsPerProductIds.get(product.productId)?.toList() ?: emptyList())
             }
 
         log.info { "Found ${result.size} products:" }
@@ -123,7 +123,6 @@ class ProductService(
             this.basePrice,
             country,
             taxedPrice = finalPrice,
-            appliedDiscounts = discounts, // TODO remove later
         )
     }
 
