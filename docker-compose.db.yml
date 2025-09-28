@@ -1,6 +1,6 @@
 services:
   mongodb-product:
-    image: mongodb/mongodb-community-server:latest
+    image: mongodb/mongodb-community-server:8.2-ubi8
     container_name: mongodb-product
     restart: unless-stopped
     ports:
@@ -11,7 +11,7 @@ services:
       - svebrant_network
 
   mongodb-discount:
-    image: mongodb/mongodb-community-server:latest
+    image: mongodb/mongodb-community-server:8.2-ubi8
     container_name: mongodb-discount
     restart: unless-stopped
     ports:
