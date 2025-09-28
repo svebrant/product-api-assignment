@@ -10,8 +10,21 @@ services:
     networks:
       - svebrant_network
 
+  mongodb-discount:
+    image: mongodb/mongodb-community-server:latest
+    container_name: mongodb-discount
+    restart: unless-stopped
+    ports:
+      - "27027:27017"
+    volumes:
+      - mongo_data_discount:/data/dbmak
+    networks:
+      - svebrant_network
+
 volumes:
   mongo_data_product:
+    driver: local
+  mongo_data_discount:
     driver: local
 
 networks:

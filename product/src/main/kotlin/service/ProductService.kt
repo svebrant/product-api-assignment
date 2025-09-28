@@ -58,6 +58,8 @@ class ProductService(
     }
 
     // TODO apply discount ontop of the taxedPrice. discount must be retrieved from discount service
+    // TODO deduplication of apply discount must look at the alreadyApplied response
+    // TODO ensure that the total discount does not exceed 100% of the base price
     private fun ProductDto.mapToResponse(): ProductResponse {
         val country = Country.valueOf(this.country)
         val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")

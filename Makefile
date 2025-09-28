@@ -20,40 +20,52 @@ help:
 
 all: build image
 
-image: image-product
+image: image-product image-discount
 
-build: fmt build-product
+build: fmt build-product build-discount
 
-fmt: format-product
+fmt: format-product format-discount
 
-lint: lint-product
+lint: lint-product lint-discount
 
 build-product:
 	 cd product && ./gradlew build
 
+build-discount:
+	 cd discount && ./gradlew build
+
 format-product:
 	 cd product && ./gradlew ktlintFormat
+
+format-discount:
+	 cd discount && ./gradlew ktlintFormat
 
 lint-product:
 	 cd product && ./gradlew ktlintCheck
 
+lint-discount:
+	 cd discount && ./gradlew ktlintCheck
+
 image-product:
 	 docker build -f docker/Dockerfile.product -t svebrant-product:latest .
 
+image-discount:
+	 docker build -f docker/Dockerfile.discount -t svebrant-product:latest .
+
 start:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml -f docker-compose.services.yml up
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml -f docker-compose.services.yml up
 
 start-db:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml up
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml up
 
 stop:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml  -f docker-compose.services.yml down
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml  -f docker-compose.services.yml down
 
 stop-db:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml down
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml down
 
 stop-reset:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml  -f docker-compose.services.yml down -v
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml  -f docker-compose.services.yml down -v
 
 stop-reset-db:
-	 $(DOCKER_COMPOSE) -f docker-compose.local.yml down -v
+	 $(DOCKER_COMPOSE) -f docker-compose.db.yml down -v

@@ -11,3 +11,16 @@ services:
       - mongodb-product
     networks:
       - svebrant_network
+
+  discount-service:
+    image: svebrant-discount:latest # image built from /docker/Dockerfile.discount
+    container_name: discount-service
+    restart: unless-stopped
+    environment:
+      mongodb.uri: "mongodb://mongodb-discount:27027"
+    ports:
+      - "8060:8060"
+    depends_on:
+      - mongodb-discount
+    networks:
+      - svebrant_network

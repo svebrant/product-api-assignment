@@ -1,0 +1,10 @@
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+# Copy the fat JAR from the build context
+COPY discount/build/libs/discount-all.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
