@@ -2,8 +2,8 @@ package com.svebrant.client
 
 import com.svebrant.configuration.HEADER_REQUEST_ID
 import com.svebrant.configuration.MDC_KEY_REQUEST_ID
+import com.svebrant.model.discount.DiscountApiRequest
 import com.svebrant.model.discount.DiscountApplicationResponse
-import com.svebrant.model.discount.DiscountRequest
 import com.svebrant.model.discount.DiscountResponse
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
@@ -21,8 +21,8 @@ class DiscountClient(
     private val baseUrl: String,
     private val httpClient: HttpClient,
 ) : KoinComponent {
-    suspend fun createRequest(discount: DiscountRequest): DiscountApplicationResponse {
-        log.info { "Applying discount: $discount to the discount service" }
+    suspend fun createRequest(discount: DiscountApiRequest): DiscountApplicationResponse {
+        log.debug { "Applying discount: $discount to the discount service" }
         try {
             val response =
                 httpClient.put("$baseUrl/discounts/apply") {
@@ -38,10 +38,9 @@ class DiscountClient(
     }
 
     suspend fun getDiscounts(productId: String): List<DiscountResponse> {
-        log.info { "Retrieving discounts for product: $productId from the discount service" }
+        log.debug { "Retrieving discounts for product: $productId from the discount service" }
         try {
             val response = httpClient.get("$baseUrl/discounts/$productId")
-            println("GetDiscountsResponse: $response")
             return response.body()
         } catch (e: Exception) {
             log.error(e) { "Error retrieving discounts for product $productId: ${e.message}" }

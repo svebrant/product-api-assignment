@@ -8,9 +8,6 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 
-/**
- * Plugin to manage scheduled tasks lifecycle
- */
 private val SchedulerPlugin =
     createApplicationPlugin(name = "SchedulerPlugin") {
         val scheduler = IngestionScheduler()
@@ -26,9 +23,6 @@ private val SchedulerPlugin =
         }
     }
 
-/**
- * Configure schedulers for the application
- */
 fun Application.configureSchedulers() {
     install(SchedulerPlugin)
 }

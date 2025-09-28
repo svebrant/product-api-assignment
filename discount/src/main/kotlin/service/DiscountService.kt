@@ -43,6 +43,14 @@ class DiscountService(
         return result
     }
 
+    suspend fun getByProductIds(productIds: Set<String>): Map<String, List<DiscountResponse>> {
+        log.info { "Retrieving discounts by productId: $productIds" }
+        val result = repository.findByProductIds(productIds)
+            .mapValues { (_, discounts) -> discounts.map { it.mapToResponse() } }
+        log.info { "Found ${result.values.sumOf { it.size }} discounts for ${productIds.size} productIds:" }
+        return result
+    }
+
     suspend fun applyDiscount(discountRequest: DiscountRequest): DiscountApplicationResponse =
         try {
             val saved: DiscountDto? = repository.save(discountRequest)
@@ -56,7 +64,8 @@ class DiscountService(
             throw e
         }
 
-    private fun DiscountDto.mapToResponse(): DiscountResponse = DiscountResponse(this.productId, this.discountId, this.percent)
+    private fun DiscountDto.mapToResponse(): DiscountResponse =
+        DiscountResponse(this.productId, this.discountId, this.percent)
 
     companion object {
         private val log = KotlinLogging.logger { }

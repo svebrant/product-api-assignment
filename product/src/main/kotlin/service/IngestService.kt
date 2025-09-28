@@ -5,7 +5,7 @@ import com.svebrant.exception.FailFastException
 import com.svebrant.exception.ValidationErrorException
 import com.svebrant.metrics.IngestionMetrics
 import com.svebrant.metrics.MAX_ERROR_SAMPLES
-import com.svebrant.model.discount.DiscountRequest
+import com.svebrant.model.discount.DiscountApiRequest
 import com.svebrant.model.ingest.ErrorSample
 import com.svebrant.model.ingest.IngestEntity
 import com.svebrant.model.ingest.IngestEntityData
@@ -416,7 +416,7 @@ class IngestService(
         lineNumber: Int,
         attempt: Int,
     ) {
-        val parsed = json.decodeFromString(DiscountRequest.serializer(), line)
+        val parsed = json.decodeFromString(DiscountApiRequest.serializer(), line)
         if (attempt == 0) {
             metrics.discountsParsed.incrementAndGet()
         }
@@ -428,18 +428,18 @@ class IngestService(
                     metrics.discountsIngested.incrementAndGet()
                 } else {
                     metrics.discountsDeduplicated.incrementAndGet()
-                    // TODO write to error sample?
+                    val duplicationMessage =
+                        "duplicate discount with composite key ${parsed.productId}-${parsed.discountId}"
+                    metrics.addErrorSample(
+                        fileName,
+                        lineNumber,
+                        duplicationMessage,
+                        MAX_ERROR_SAMPLES,
+                    )
+                    if (ingest.failFast) {
+                        throw FailFastException(duplicationMessage)
+                    }
                 }
-            }
-        } catch (e: DuplicateEntryException) {
-            // TODO i think this catch is never hit since deduplication is handled in service and can likely be removed
-            log.debug { "Duplicate discount entry: ${e.message}" }
-            if (attempt == 0) {
-                metrics.discountsDeduplicated.incrementAndGet()
-            }
-            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Duplicate discount", MAX_ERROR_SAMPLES)
-            if (ingest.failFast) {
-                throw FailFastException("Duplicate discount: ${e.message}")
             }
         } catch (e: ValidationErrorException) {
             log.debug { "Discount validation error: ${e.message}" }

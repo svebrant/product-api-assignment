@@ -2,6 +2,7 @@ package com.svebrant.repository
 
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Filters.eq
+import com.mongodb.client.model.Filters.`in`
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.model.Filters.and
 import com.svebrant.exception.DuplicateEntryException
@@ -61,7 +62,15 @@ class DiscountRepository(
             .find(eq("productId", productId))
             .sort(org.bson.Document("percent", -1))
             .toList()
-        // .sortedByDescending { it.percent }
+    }
+
+    suspend fun findByProductIds(productIds: Set<String>): Map<String, List<DiscountDto>> {
+        log.debug { "Getting discounts with ${productIds.size} productIds" }
+        return discountsCollection
+            .find(`in`("productId", productIds))
+            .sort(org.bson.Document("percent", -1))
+            .toList()
+            .groupBy { it.productId }
     }
 
     suspend fun find(

@@ -10,4 +10,6 @@
     </root>
     <logger name="io.netty" level="INFO"/>
     <logger name="org.mongodb.driver" level="WARN"/>
+    <logger name="com.svebrant.service.DiscountService" level="INFO"/>
+    <logger name="com.svebrant.client.DiscountClient" level="INFO"/>
 </configuration>

@@ -7,6 +7,13 @@ mongodb:
 http:
   discount-client:
     base-url: "http://localhost:8060"
+    engine:
+      maxRetries: 5
+      maxConnectionsCount: 200
+      maxConnectionsPerRoute: 200
+      pipelineMaxSize: 20
+      keepAliveTime: 5000
+      connectTimeout: 5000
 
 auth:
   bearer:

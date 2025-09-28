@@ -2,7 +2,9 @@ package com.svebrant.service
 
 import com.svebrant.exception.DuplicateEntryException
 import com.svebrant.exception.ValidationErrorException
+import com.svebrant.model.discount.DiscountApiRequest
 import com.svebrant.model.discount.DiscountRequest
+import com.svebrant.model.discount.DiscountResponse
 import com.svebrant.model.product.Country
 import com.svebrant.model.product.ProductRequest
 import com.svebrant.model.product.ProductResponse
@@ -24,32 +26,45 @@ class ProductService(
         sortOrder: String = "ASC",
     ): List<ProductResponse> {
         log.info { "Retrieving products${country?.let { " for country: $it" } ?: ""}, limit $limit, offset $offset" }
+
+        val products = repository.find(country = country, limit = limit, offset = offset, sortOrder = sortOrder)
+
+        // For each product, fetch discounts and map to response with discounts
+        // TODO improve performance by fetching discounts as a batch
         val result =
-            repository
-                .find(country = country, limit = limit, offset = offset, sortOrder = sortOrder)
-                .map { it.mapToResponse() }
-        log.info { "Found products: $result" }
+            products.map { product ->
+                val discounts = discountService.getDiscountsForProduct(product.productId)
+                product.mapToResponse(discounts)
+            }
+
+        log.info { "Found ${result.size} products:" }
         return result
     }
 
     suspend fun getById(id: String): ProductResponse? {
         log.info { "Retrieving product by id: $id" }
-        val result: ProductResponse? =
-            repository.findById(id)?.let {
-                mapToResponseWithDiscounts(it)
-            }
-        log.info { "Found product by id: $result" }
-        return result
+
+        val product = repository.findByProductId(id)
+        if (product == null) {
+            log.info { "No product found with id: $id" }
+            return null
+        }
+
+        val discounts = discountService.getDiscountsForProduct(product.productId)
+        return product.mapToResponse(discounts)
     }
 
     suspend fun getByProductId(id: String): ProductResponse? {
         log.info { "Retrieving product by id: $id" }
-        val result: ProductResponse? =
-            repository.findByProductId(id)?.let {
-                mapToResponseWithDiscounts(it)
-            }
-        log.info { "Found product by id: $result" }
-        return result
+
+        val product = repository.findByProductId(id)
+        if (product == null) {
+            log.info { "No product found with id: $id" }
+            return null
+        }
+        val discounts = discountService.getDiscountsForProduct(product.productId)
+
+        return product.mapToResponse(discounts)
     }
 
     suspend fun create(productRequest: ProductRequest): String? =
@@ -65,45 +80,6 @@ class ProductService(
             throw e
         }
 
-    private suspend fun mapToResponseWithDiscounts(product: ProductDto): ProductResponse {
-        // First get the base taxed price
-        val country = Country.valueOf(product.country)
-        val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")
-        val baseTaxedPrice = product.basePrice * (1.0 + vat)
-
-        // Get all discounts for this product
-        val discounts = discountService.getDiscountsForProduct(product.productId)
-
-        // Apply discounts
-        val finalPrice =
-            if (discounts.isEmpty()) {
-                baseTaxedPrice
-            } else {
-                // Apply all discounts to the taxed price
-                val totalDiscountPercent = discounts.sumOf { it.percent }.coerceAtMost(100.0)
-                baseTaxedPrice * (1.0 - totalDiscountPercent / 100.0)
-            }
-
-        return ProductResponse(
-            product.productId,
-            product.name,
-            product.basePrice,
-            country,
-            taxedPrice = finalPrice,
-            appliedDiscounts = discounts, // TODO remove later
-        )
-    }
-
-    /**
-     * Maps a ProductDto to ProductResponse without retrieving discounts
-     */
-    private fun ProductDto.mapToResponse(): ProductResponse {
-        val country = Country.valueOf(this.country)
-        val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")
-        val taxedPrice = basePrice * (1.0 + vat)
-        return ProductResponse(this.productId, this.name, this.basePrice, country, taxedPrice = taxedPrice)
-    }
-
     suspend fun applyDiscount(
         productId: String,
         discountRequest: DiscountRequest,
@@ -116,7 +92,7 @@ class ProductService(
                 ?: throw IllegalArgumentException("No product found with id $productId")
 
         // Add the productId to the discount request
-        val completeDiscountRequest = discountRequest.copy(productId = productId)
+        val completeDiscountRequest = DiscountApiRequest(productId, discountRequest.discountId, discountRequest.percent)
 
         // Apply discount via discount service
         val applyDiscount = discountService.create(completeDiscountRequest)
@@ -127,6 +103,27 @@ class ProductService(
             discountRequest.percent,
             applyDiscount.applied,
             applyDiscount.alreadyApplied,
+        )
+    }
+
+    private fun ProductDto.mapToResponse(discounts: List<DiscountResponse>): ProductResponse {
+        val country = Country.valueOf(this.country)
+        val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")
+
+        // Apply all discounts to the base price (before VAT)
+        val totalDiscountPercent = discounts.sumOf { it.percent }.coerceAtMost(100.0)
+        val discountedPrice = this.basePrice * (1.0 - totalDiscountPercent / 100.0)
+
+        // Apply VAT to the discounted price
+        val finalPrice = discountedPrice * (1.0 + vat)
+
+        return ProductResponse(
+            this.productId,
+            this.name,
+            this.basePrice,
+            country,
+            taxedPrice = finalPrice,
+            appliedDiscounts = discounts, // TODO remove later
         )
     }
 

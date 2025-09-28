@@ -4,7 +4,7 @@ import com.svebrant.repository.dto.ErrorDto
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 
-const val MAX_ERROR_SAMPLES = 5
+const val MAX_ERROR_SAMPLES = 10
 
 class IngestionMetrics(
     val productsParsed: AtomicInteger = AtomicInteger(0),

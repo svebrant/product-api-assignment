@@ -63,4 +63,5 @@ fun Route.discountRoutes() {
             call.respondText("Discount not found", status = io.ktor.http.HttpStatusCode.NotFound)
         }
     }
+
 }

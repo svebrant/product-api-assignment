@@ -9,7 +9,6 @@ import kotlinx.serialization.encoding.Encoder
 import org.bson.types.ObjectId
 
 // Could not get existing ObjectIdSerializer from bson to work, so made my own
-
 object ObjectIdSerializer : KSerializer<ObjectId> {
     override val descriptor: SerialDescriptor =
         PrimitiveSerialDescriptor("ObjectId", PrimitiveKind.STRING)
