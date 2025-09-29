@@ -10,59 +10,69 @@ DS = Discount Service
 
 ```mermaid
 sequenceDiagram
-    participant [PS] ProductRoutes
-    participant [PS] ProductService
-    participant [PS] ProductRepository
-    participant [PS] DiscountService
-    participant [PS] DiscountClient
-    participant [DS] DiscountRoutes
-    participant [DS] DiscountService
-    participant [DS] DiscountRepository
-    [PS] ProductRoutes ->> [PS] ProductRoutes: id = null - HTTP 400
-    [PS] ProductRoutes ->> [PS] ProductService: /products/{id} -> getByProductId(id)
-    [PS] ProductService ->> [PS] ProductRepository: findByProductId(id)
-    [PS] ProductRepository -->> [PS] ProductService: Product?
-    [PS] ProductService -->> [PS] ProductRoutes: null - HTTP 404
-    [PS] ProductService ->> [PS] DiscountClient: getDiscountsForProduct(productId)
-    [PS] DiscountClient ->> [DS] DiscountRoutes: getDiscounts(productId)
-    [DS] DiscountRoutes ->> [DS] DiscountService: getByProductId(productId)
-    [DS] DiscountService ->> [DS] DiscountRepository: findByProductId(productId)
-    [DS] DiscountRepository -->> [DS] DiscountService: List<DiscountDto>
-    [DS] DiscountService -->> [DS] DiscountRoutes: List<DiscountResponse>
-    [DS] DiscountRoutes -->> [PS] DiscountClient: List<DiscountResponse>
-    [PS] DiscountClient -->> [PS] ProductService: List<DiscountResponse>
-    [PS] ProductService -->> [PS] ProductRoutes: ProductResponse - HTTP 200
+    box Product Service
+        participant PR as [PS] ProductRoutes
+        participant PS as [PS] ProductService
+        participant PREP as [PS] ProductRepository
+        participant DS as [PS] DiscountService
+        participant DC as [PS] DiscountClient
+    end
+    box Discount Service
+        participant DR as [DS] DiscountRoutes
+        participant DSS as [DS] DiscountService
+        participant DREP as [DS] DiscountRepository
+    end
+
+    PR ->> PR: id = null - HTTP 400
+    PR ->> PS: /products/{id} -> getByProductId(id)
+    PS ->> PREP: findByProductId(id)
+    PREP -->> PS: Product?
+    PS -->> PR: null - HTTP 404
+    PS ->> DC: getDiscountsForProduct(productId)
+    DC ->> DR: getDiscounts(productId)
+    DR ->> DSS: getByProductId(productId)
+    DSS ->> DREP: findByProductId(productId)
+    DREP -->> DSS: List<DiscountDto>
+    DSS -->> DR: List<DiscountResponse>
+    DR -->> DC: List<DiscountResponse>
+    DC -->> PS: List<DiscountResponse>
+    PS -->> PR: ProductResponse - HTTP 200
 ```
 
 # 2. POST /products/{id}/discount endpoint
 
 ```mermaid
 sequenceDiagram
-    participant [PS] ProductRoutes
-    participant [PS] ProductService
-    participant [PS] ProductRepository
-    participant [PS] DiscountService
-    participant [PS] DiscountClient
-    participant [DS] DiscountRoutes
-    participant [DS] DiscountService
-    participant [DS] DiscountRepository
-    [PS] ProductRoutes ->> [PS] ProductRoutes: id = null - HTTP 400
-    [PS] ProductRoutes ->> [PS] ProductRoutes: discountRequest.validate()
-    [PS] ProductRoutes ->> [PS] ProductService: applyDiscount(id, discountRequest)
-    [PS] ProductService ->> [PS] ProductRepository: findByProductId(id) -> ProductDto?
-    [PS] ProductRepository -->> [PS] ProductService: ProductDto? = null
-    [PS] ProductService -->> [PS] ProductRoutes: HTTP 400
-    [PS] ProductService ->> [PS] DiscountService: create - DiscountApiRequest
-    [PS] DiscountService ->> [PS] DiscountClient: validate - createRequest
-    [PS] DiscountClient ->> [DS] DiscountRoutes: /discounts/apply
-    [DS] DiscountRoutes ->> [DS] DiscountService: validate - applyDiscount
-    [DS] DiscountService ->> [DS] DiscountRepository: save (idempotent on productId + discountId)
-    [DS] DiscountRepository -->> [DS] DiscountService: DiscountDto?
-    [DS] DiscountService -->> [DS] DiscountRoutes: DiscountApplicationResponse
-    [DS] DiscountRoutes -->> [PS] DiscountClient: DiscountApplicationResponse
-    [PS] DiscountClient -->> [PS] DiscountService: DiscountApplicationResponse
-    [PS] DiscountService -->> [PS] ProductService: DiscountApplicationResponse
-    [PS] ProductService -->> [PS] ProductRoutes: ProductWithDiscountResponse - HTTP 200
+    box Product Service
+        participant PR as [PS] ProductRoutes
+        participant PS as [PS] ProductService
+        participant PREP as [PS] ProductRepository
+        participant DS as [PS] DiscountService
+        participant DC as [PS] DiscountClient
+    end
+    box Discount Service
+        participant DR as [DS] DiscountRoutes
+        participant DSS as [DS] DiscountService
+        participant DREP as [DS] DiscountRepository
+    end
+
+    PR ->> PR: id = null - HTTP 400
+    PR ->> PR: discountRequest.validate()
+    PR ->> PS: applyDiscount(id, discountRequest)
+    PS ->> PREP: findByProductId(id) -> ProductDto?
+    PREP -->> PS: ProductDto? = null
+    PS -->> PR: HTTP 400
+    PS ->> DS: create - DiscountApiRequest
+    DS ->> DC: validate - createRequest
+    DC ->> DR: /discounts/apply
+    DR ->> DSS: validate - applyDiscount
+    DSS ->> DREP: save (idempotent on productId + discountId)
+    DREP -->> DSS: DiscountDto?
+    DSS -->> DR: DiscountApplicationResponse
+    DR -->> DC: DiscountApplicationResponse
+    DC -->> DS: DiscountApplicationResponse
+    DS -->> PS: DiscountApplicationResponse
+    PS -->> PR: ProductWithDiscountResponse - HTTP 200
 ```
 
 3. Ingestion start → parse → validate → write → status
@@ -72,47 +82,51 @@ with IngestMode = ALL
 
 ```mermaid
 sequenceDiagram
-    participant [PS] AdminRoutes
-    participant [PS] IngestionScheduler
-    participant [PS] IngestService
-    participant [PS] IngestRepository
-    participant [PS] ProductService
-    participant [PS] ProductRepository
-    participant [PS] DiscountService
-    participant [PS] DiscountClient
-    participant [DS] DiscountRoutes
-    participant [DS] DiscountService
-    participant [DS] DiscountRepository
-    [PS] AdminRoutes ->> [PS] AdminRoutes: POST /admin/ingest
-    [PS] AdminRoutes --> [PS] AdminRoutes: ingestRequest.validate()
-    [PS] AdminRoutes ->> [PS] IngestService: createIngestJob(ingestRequest) - PENDING
-    [PS] IngestionScheduler ->> [PS] IngestionScheduler: poll for PENDING jobs
-    [PS] IngestionScheduler ->> [PS] IngestService: processIngestion(ingestionId)
-    [PS] IngestService ->> [PS] IngestRepository: updateInitialProgress(ingestionId)
-    [PS] IngestService ->> [PS] IngestRepository: updateStatus(STARTED)
-    [PS] IngestService ->> [PS] IngestService: processWithWorkers - spawn workers
-    [PS] IngestService ->> [PS] IngestService: launchFileReader - writes contents to channel
-    [PS] IngestService ->> [PS] IngestService: processProduct - product workers processes from channel
-    [PS] IngestService ->> [PS] ProductService: create - ProductRequest
-    [PS] ProductService ->> [PS] ProductRepository: save - deduplicate, save metrics, etc
-    [PS] IngestService ->> [PS] IngestService: processDiscount - product workers processes from channel
-    [PS] IngestService ->> [PS] DiscountService: createBatch - List<DiscountApiRequest>
-    [PS] DiscountService ->> [PS] DiscountClient: createRequest - DiscountApiRequest
-    [PS] DiscountClient ->> [DS] DiscountRoutes: POST /discounts/apply/batch
-    [DS] DiscountService ->> [DS] DiscountRepository: save
-    [DS] DiscountRepository --> [DS] DiscountService: BatchDiscountApplicationResponse
-    [DS] DiscountService --> [DS] DiscountRoutes: BatchDiscountApplicationResponse
-    [DS] DiscountRoutes --> [PS] DiscountClient: BatchDiscountApplicationResponse (200)
-    [PS] DiscountClient --> [PS] DiscountService: BatchDiscountApplicationResponse
-    [PS] DiscountService --> [PS] IngestService: BatchDiscountApplicationResponse
-    [PS] IngestService --> [PS] IngestService: update progress
-    [PS] IngestService ->> [PS] IngestRepository: update progress
-    [PS] AdminRoutes ->> [PS] IngestService: GET /admin/ingest/{$PARAM_INGESTION_ID}/status
-    [PS] IngestService ->> [PS] IngestService: getIngestionStatus(ingestionId)
-    [PS] IngestService ->> [PS] IngestRepository: findByIngestionId(ingestionId)
-    [PS] IngestRepository --> [PS] IngestService: IngestionStatusResponse
-    [PS] IngestService --> [PS] AdminRoutes: IngestionStatusResponse - HTTP 200
+    box Product Service
+        participant AR as [PS] AdminRoutes
+        participant IS as [PS] IngestionScheduler
+        participant InS as [PS] IngestService
+        participant IR as [PS] IngestRepository
+        participant PS as [PS] ProductService
+        participant PR as [PS] ProductRepository
+        participant DS as [PS] DiscountService
+        participant DC as [PS] DiscountClient
+    end
+    box Discount Service
+        participant DR as [DS] DiscountRoutes
+        participant DSS as [DS] DiscountService
+        participant DREP as [DS] DiscountRepository
+    end
 
+    AR ->> AR: POST /admin/ingest
+    AR --> AR: ingestRequest.validate()
+    AR ->> InS: createIngestJob(ingestRequest) - PENDING
+    IS ->> IS: poll for PENDING jobs
+    IS ->> InS: processIngestion(ingestionId)
+    InS ->> IR: updateInitialProgress(ingestionId)
+    InS ->> IR: updateStatus(STARTED)
+    InS ->> InS: processWithWorkers - spawn workers
+    InS ->> InS: launchFileReader - writes contents to channel
+    InS ->> InS: processProduct - product workers processes from channel
+    InS ->> PS: create - ProductRequest
+    PS ->> PR: save - deduplicate, save metrics, etc
+    InS ->> InS: processDiscount - product workers processes from channel
+    InS ->> DS: createBatch - List<DiscountApiRequest>
+    DS ->> DC: createRequest - DiscountApiRequest
+    DC ->> DR: POST /discounts/apply/batch
+    DSS ->> DREP: save
+    DREP --> DSS: BatchDiscountApplicationResponse
+    DSS --> DR: BatchDiscountApplicationResponse
+    DR --> DC: BatchDiscountApplicationResponse (200)
+    DC --> DS: BatchDiscountApplicationResponse
+    DS --> InS: BatchDiscountApplicationResponse
+    InS --> InS: update progress
+    InS ->> IR: update progress
+    AR ->> InS: GET /admin/ingest/{$PARAM_INGESTION_ID}/status
+    InS ->> InS: getIngestionStatus(ingestionId)
+    InS ->> IR: findByIngestionId(ingestionId)
+    IR --> InS: IngestionStatusResponse
+    InS --> AR: IngestionStatusResponse - HTTP 200
 ```
 
 # Component diagram showing the two services and their communication
@@ -155,6 +169,4 @@ graph TD
     DiscountRoutes -->|2 . Authorized calls gets forwarded to service layer| DiscountService
     DiscountService -->|3 . Business logic <br> storage in repository| DiscountRepository
     DiscountRepository -->|4 . Repository stores in MongoDB <br> Reactive driver| DiscountDB
-
-
 ```
