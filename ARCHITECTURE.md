@@ -2,11 +2,7 @@
 
 The flows are roughly like as follows:
 
-PS = Product Service
-
-DS = Discount Service
-
-# 1. GET /products endpoints
+### 1. GET /products endpoints
 
 ```mermaid
 sequenceDiagram
@@ -39,7 +35,7 @@ sequenceDiagram
     PS -->> PR: ProductResponse - HTTP 200
 ```
 
-# 2. POST /products/{id}/discount endpoint
+### 2. POST /products/{id}/discount endpoint
 
 ```mermaid
 sequenceDiagram
@@ -75,7 +71,7 @@ sequenceDiagram
     PS -->> PR: ProductWithDiscountResponse - HTTP 200
 ```
 
-3. Ingestion start → parse → validate → write → status
+### 3. Ingestion start → parse → validate → write → status
 
 I am interpreting this one as the ingestion flow start until the ingestion gets status STARTED and ingestions starts
 with IngestMode = ALL
@@ -129,44 +125,65 @@ sequenceDiagram
     InS --> AR: IngestionStatusResponse - HTTP 200
 ```
 
-# Component diagram showing the two services and their communication
+## Component diagram showing the two services and their communication
+
+The general data flows look like this, excluding specifics such as the ingestion related internal Product-service
+components.
 
 ```mermaid
 graph TD
-    subgraph "Users"
-        User[Admin]
+    Admin([Admin User]):::userStyle
+
+    subgraph "Product Service"
+        ProductRoutes[ProductRoutes]:::apiStyle
+        ProductService[ProductService]:::logicStyle
+        ProductRepo[ProductRepository]:::repoStyle
+        DiscountService[DiscountService]:::logicStyle
+        DiscountClient[DiscountClient]:::clientStyle
     end
 
-    subgraph "Product-Service"
-        ProductRoutes[Product REST API<br>BEARER Auth Protected]
-        ProductService[Product Service layer]
-        DiscountClient[REST client towards Discount-Service]
-        ProductRepository[Product Repository]
+    subgraph "Discount Service"
+        DiscountRoutes[DiscountRoutes]:::apiStyle
+        DiscountLogic[DiscountService]:::logicStyle
+        DiscountRepo[DiscountRepository]:::repoStyle
     end
 
-    subgraph "Discount-Service"
-        DiscountRoutes[Discount REST API<br>BEARER Auth Protected]
-        DiscountService[Discount Business Logic]
-        DiscountRepository[Discount Repository]
-    end
-
-    subgraph "Databases"
-        ProductDB[(MongoDB<br>Product Database)]
-        DiscountDB[(MongoDB<br>Discount Database)]
-    end
-
-%% Product Service
-    User -->|1 . User calls REST endpoints<br>Bearer token protected| ProductRoutes
-    ProductRoutes -->|1 . 5 . Unauthorized calls get blocked| User
-    ProductRoutes -->|2 . Authorized calls gets forwarded to service layer| ProductService
-    ProductService -->|3 . Business logic <br> storage in repository| ProductRepository
-    ProductRepository -->|4 . Repository stores in MongoDB <br> Reactive driver| ProductDB
-    ProductService -->|5 . Forwards calls to DiscountService| DiscountClient
-    DiscountClient -->|6 . Forwards calls to DiscountService <br> Authorization header| DiscountRoutes
-%% Discount Service
-    User -->|1 . User calls REST endpoints<br>Bearer token protected| DiscountRoutes
-    DiscountRoutes -->|1 . 5 . Unauthorized calls get blocked| User
-    DiscountRoutes -->|2 . Authorized calls gets forwarded to service layer| DiscountService
-    DiscountService -->|3 . Business logic <br> storage in repository| DiscountRepository
-    DiscountRepository -->|4 . Repository stores in MongoDB <br> Reactive driver| DiscountDB
+%% Databases with distinct styling
+    ProductDB[(MongoDB<br>Product)]:::dbStyle
+    DiscountDB[(MongoDB<br> Discount)]:::dbStyle
+%% Hard-coded Bearer auth
+    BearerToken{{Bearer Token Validation}}:::authStyle
+%% Flow for Product Service
+    Admin -->|Request with Bearer token| ProductRoutes
+    ProductRoutes -->|Token validation| BearerToken
+    BearerToken -->|Unauthorized| Admin
+    ProductRoutes -->|Authorized requests| ProductService
+    ProductService -->|Data operations| ProductRepo
+    ProductRepo -->|MongoDB operations<br>Reactive| ProductDB
+    ProductService -->|Discount operations| DiscountService
+    DiscountService -->|Remote calls| DiscountClient
+%% Connection between services
+    DiscountClient -->|Request with Bearer token| DiscountRoutes
+%% Flow for Discount Service
+    DiscountRoutes -->|Token validation| BearerToken
+    DiscountRoutes -->|Authorized requests| DiscountLogic
+    DiscountLogic -->|Data operations| DiscountRepo
+    DiscountRepo -->|MongoDB operations<br>Reactive| DiscountDB
+%% Response flows
+    DiscountRepo -->|Return data| DiscountLogic
+    DiscountLogic -->|Return response| DiscountRoutes
+    DiscountRoutes -->|API response| DiscountClient
+    DiscountClient -->|Return discounts| DiscountService
+    DiscountService -->|Return processed data| ProductService
+    ProductRepo -->|Return data| ProductService
+    ProductService -->|Return response| ProductRoutes
+    ProductRoutes -->|API response| Admin
+%% Style definitions
+    classDef apiStyle fill: #f9a, stroke: #333, stroke-width: 1px;
+    classDef logicStyle fill: #adf, stroke: #333, stroke-width: 1px;
+    classDef repoStyle fill: #bfb, stroke: #333, stroke-width: 1px;
+    classDef dbStyle fill: #fdd, stroke: #f66, stroke-width: 2px, stroke-dasharray: 5 5;
+    classDef clientStyle fill: #ddd, stroke: #333, stroke-width: 1px;
+    classDef authStyle fill: #ff9, stroke: #333, stroke-width: 1px;
+    classDef userStyle fill: #eee, stroke: #333, stroke-width: 1px;
 ```
