@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     environment:
       auth.bearer.token: "secret-dev-token-please-change"
-      mongodb.uri: "mongodb://mongodb-discount:27027"
+      mongodb.uri: "mongodb://mongodb-discount:27017"
     ports:
       - "8060:8060"
     depends_on:

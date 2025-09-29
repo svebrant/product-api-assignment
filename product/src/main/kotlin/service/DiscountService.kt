@@ -5,6 +5,7 @@ import com.svebrant.exception.ValidationErrorException
 import com.svebrant.model.discount.BatchDiscountApplicationResponse
 import com.svebrant.model.discount.DiscountApiRequest
 import com.svebrant.model.discount.DiscountApplicationResponse
+import com.svebrant.model.discount.DiscountApplicationResult
 import com.svebrant.model.discount.DiscountResponse
 import com.svebrant.model.discount.validate
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -52,7 +53,6 @@ class DiscountService(
 
         log.info { "Processing batch of ${discounts.size} discounts" }
 
-        // Validate all discounts before sending
         val validationErrors = mutableListOf<Pair<DiscountApiRequest, String>>()
         val validDiscounts =
             discounts.filter { discount ->
@@ -69,17 +69,52 @@ class DiscountService(
             log.warn { "${validationErrors.size} discounts failed validation and will be excluded from batch" }
         }
 
-        return try {
-            val response = discountClient.createBatchRequest(validDiscounts)
-            log.info {
-                "Batch processing complete: ${response.summary.successful} successful, " +
-                    "${response.summary.failed} failed, ${response.summary.alreadyApplied} already applied"
+        val apiResponse =
+            try {
+                if (validDiscounts.isNotEmpty()) {
+                    discountClient.createBatchRequest(validDiscounts)
+                } else {
+                    BatchDiscountApplicationResponse(
+                        results = emptyList(),
+                        summary =
+                            com.svebrant.model.discount
+                                .BatchSummary(0, 0, 0, 0),
+                    )
+                }
+            } catch (e: Exception) {
+                log.error(e) { "Error processing discount batch: ${e.message}" }
+                throw e
             }
-            response
-        } catch (e: Exception) {
-            log.error(e) { "Error processing discount batch: ${e.message}" }
-            throw e
+
+        val validationResults =
+            validationErrors.map { (discount, errorMessage) ->
+                DiscountApplicationResult(
+                    productId = discount.productId,
+                    discountId = discount.discountId,
+                    success = false,
+                    alreadyApplied = false,
+                    error = "Validation error: $errorMessage",
+                )
+            }
+
+        val combinedResults = apiResponse.results + validationResults
+        val combinedSummary =
+            com.svebrant.model.discount.BatchSummary(
+                total = apiResponse.summary.total + validationErrors.size,
+                successful = apiResponse.summary.successful,
+                failed = apiResponse.summary.failed + validationErrors.size,
+                alreadyApplied = apiResponse.summary.alreadyApplied,
+            )
+
+        log.info {
+            "Batch processing complete: ${combinedSummary.successful} successful, " +
+                "${combinedSummary.failed} failed, ${combinedSummary.alreadyApplied} already applied"
         }
+
+        return BatchDiscountApplicationResponse(
+            results = combinedResults,
+            summary = combinedSummary,
+        )
     }
 
     suspend fun getDiscountsForProduct(productId: String): List<DiscountResponse> {
@@ -94,7 +129,7 @@ class DiscountService(
         }
     }
 
-    suspend fun getDiscountsForProduct(productIds: Set<String>): Map<String, List<DiscountResponse>> {
+    suspend fun getDiscountsForProducts(productIds: Set<String>): Map<String, List<DiscountResponse>> {
         log.info { "Getting discounts for ${productIds.size} productIds" }
         return try {
             val discounts = discountClient.getDiscountsByProductIds(productIds)

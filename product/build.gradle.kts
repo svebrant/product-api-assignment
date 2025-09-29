@@ -65,6 +65,7 @@ dependencies {
     testImplementation("io.mockk", "mockk", mockkVersion)
     testImplementation("io.kotest", "kotest-assertions-core-jvm", kotestVersion)
     testImplementation("io.kotest", "kotest-runner-junit5-jvm", kotestVersion)
+    testImplementation("org.jetbrains.kotlinx", "kotlinx-coroutines-core", coroutinesVersion)
     testImplementation("org.jetbrains.kotlinx", "kotlinx-coroutines-test", coroutinesVersion)
 }
 

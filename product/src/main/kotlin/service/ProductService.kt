@@ -30,7 +30,7 @@ class ProductService(
         val products = repository.find(country = country, limit = limit, offset = offset, sortOrder = sortOrder)
 
         val discountsPerProductIds: Map<String, List<DiscountResponse>> =
-            discountService.getDiscountsForProduct(products.map { it.productId }.toSet())
+            discountService.getDiscountsForProducts(products.map { it.productId }.toSet())
 
         val result =
             products.map { product ->
@@ -86,15 +86,12 @@ class ProductService(
     ): ProductWithDiscountResponse {
         log.info { "Applying discount $discountRequest to product $productId" }
 
-        // Check if product exists first
         val product =
             repository.findByProductId(productId)
                 ?: throw IllegalArgumentException("No product found with id $productId")
 
-        // Add the productId to the discount request
         val completeDiscountRequest = DiscountApiRequest(productId, discountRequest.discountId, discountRequest.percent)
 
-        // Apply discount via discount service
         val applyDiscount = discountService.create(completeDiscountRequest)
 
         return ProductWithDiscountResponse(
@@ -110,11 +107,9 @@ class ProductService(
         val country = Country.valueOf(this.country)
         val vat: Double = VAT_RATES[country] ?: throw IllegalArgumentException("No VAT rate for country $country")
 
-        // Apply all discounts to the base price (before VAT)
         val totalDiscountPercent = discounts.sumOf { it.percent }.coerceAtMost(100.0)
         val discountedPrice = this.basePrice * (1.0 - totalDiscountPercent / 100.0)
 
-        // Apply VAT to the discounted price
         val finalPrice = discountedPrice * (1.0 + vat)
 
         return ProductResponse(

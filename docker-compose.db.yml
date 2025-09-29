@@ -6,7 +6,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - mongo_data_product:/data/dbmak
+      - mongo_data_product:/data/db
     networks:
       - svebrant_network
 
@@ -17,7 +17,7 @@ services:
     ports:
       - "27027:27017"
     volumes:
-      - mongo_data_discount:/data/dbmak
+      - mongo_data_discount:/data/db
     networks:
       - svebrant_network
 

@@ -384,7 +384,7 @@ class IngestService(
         }
 
         try {
-            // Send the batch request to the discount service
+            // TODO metrics are not accurate for failures within the batch, leaving this for now.
             val batchResponse = discountService.createBatch(discounts)
 
             // Process the response for each discount
@@ -395,6 +395,7 @@ class IngestService(
                     result.success -> {
                         metrics.discountsIngested.incrementAndGet()
                     }
+
                     result.alreadyApplied -> {
                         metrics.discountsDeduplicated.incrementAndGet()
                         val message = "Duplicate discount with composite key ${result.productId}-${result.discountId}"
@@ -410,6 +411,7 @@ class IngestService(
                             throw FailFastException(message)
                         }
                     }
+
                     else -> {
                         metrics.discountsFailed.incrementAndGet()
                         val errorMessage = result.error ?: "Unknown error"

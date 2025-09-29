@@ -78,8 +78,6 @@ class DiscountClient(
                 }
             return response.body()
         } catch (e: Exception) {
-            log.error(e) { "Error retrieving discounts for product $productId: ${e.message}" }
-            // In case of error, return empty list instead of failing
             return emptyList()
         }
     }
@@ -91,13 +89,11 @@ class DiscountClient(
             val response =
                 httpClient.get("$baseUrl/discounts/byProductIds") {
                     header(HEADER_REQUEST_ID, MDC.get(MDC_KEY_REQUEST_ID))
+                    contentType(ContentType.Application.Json)
                     setBody(request)
                 }
-            println("Response: $response")
             return response.body()
         } catch (e: Exception) {
-            log.error(e) { "Error retrieving discounts for product $productIds: ${e.message}" }
-            // In case of error, return empty list instead of failing
             return emptyMap()
         }
     }
