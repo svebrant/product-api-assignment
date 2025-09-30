@@ -201,6 +201,7 @@ class IngestService(
         )
     }
 
+    // NOTE: Dry run simply counts lines and simulates processing without actual ingestion or validation right now
     private suspend fun processDryRun(
         ingest: IngestionDto,
         ingestionId: String,
@@ -238,7 +239,7 @@ class IngestService(
         ingestRepository.updateProgress(
             ingestionId = ingestionId,
             filesDiscovered = filesDiscovered,
-            filesProcessed = filesDiscovered, // All files processed in dry run
+            filesProcessed = filesDiscovered,
             productsParsed = snapshot.productsParsed,
             productsIngested = snapshot.productsIngested,
             discountsParsed = snapshot.discountsParsed,
@@ -284,21 +285,15 @@ class IngestService(
             // Launch file reader in workerScope
             val fileReaderJob = launchFileReader(ingest, channel, processingJob)
 
-            if (ingest.mode == IngestMode.DISCOUNTS || ingest.mode == IngestMode.ALL) {
-                // For discounts, use batch processing
-                processDiscountsBatched(ingest, channel, metrics)
-            } else {
-                // For products only, use existing worker approach
-                val workerJobs =
-                    createWorkers(
-                        ingest = ingest,
-                        channel = channel,
-                        metrics = metrics,
-                        parentJob = processingJob,
-                    )
+            val workerJobs =
+                createWorkers(
+                    ingest = ingest,
+                    channel = channel,
+                    metrics = metrics,
+                    parentJob = processingJob,
+                )
 
-                workerJobs.joinAll()
-            }
+            workerJobs.joinAll()
 
             // Wait for file reader to finish
             fileReaderJob.join()
@@ -311,143 +306,6 @@ class IngestService(
         } finally {
             // Ensure all coroutines are cancelled if something goes wrong
             processingJob.cancel()
-        }
-    }
-
-    private suspend fun processDiscountsBatched(
-        ingest: IngestionDto,
-        channel: Channel<IngestEntityData>,
-        metrics: IngestionMetrics,
-    ) {
-        // Buffer for collecting discount requests before sending as batch
-        val discountBatchBuffer = mutableListOf<Pair<DiscountApiRequest, IngestEntityData>>()
-
-        for (item in channel) {
-            if (item.entity == IngestEntity.DISCOUNT) {
-                try {
-                    val discountRequest = json.decodeFromString(DiscountApiRequest.serializer(), item.line)
-                    metrics.discountsParsed.incrementAndGet()
-
-                    discountBatchBuffer.add(discountRequest to item)
-
-                    // When we reach the chunk size, process the batch
-                    if (discountBatchBuffer.size >= ingest.chunkSize) {
-                        processDiscountBatch(ingest, discountBatchBuffer, metrics)
-                        discountBatchBuffer.clear()
-                    }
-                } catch (e: Exception) {
-                    // Handle parsing errors
-                    metrics.discountsFailed.incrementAndGet()
-                    metrics.addErrorSample(
-                        item.fileName,
-                        item.lineNumber,
-                        "Parsing error: ${e.message ?: "Unknown error"}",
-                        MAX_ERROR_SAMPLES,
-                    )
-
-                    if (ingest.failFast) {
-                        metrics.discountsFailed.incrementAndGet()
-                        throw FailFastException("Failed to parse discount: ${e.message}")
-                    }
-                }
-            } else {
-                // Process products normally
-                processChannelItem(
-                    data = item,
-                    ingest = ingest,
-                    metrics = metrics,
-                    workerId = 0,
-                )
-            }
-        }
-
-        // Process remaining items in buffer
-        if (discountBatchBuffer.isNotEmpty()) {
-            processDiscountBatch(ingest, discountBatchBuffer, metrics)
-        }
-    }
-
-    private suspend fun processDiscountBatch(
-        ingest: IngestionDto,
-        discountBatch: List<Pair<DiscountApiRequest, IngestEntityData>>,
-        metrics: IngestionMetrics,
-    ) {
-        val discounts = discountBatch.map { it.first }
-        log.debug { "Processing batch of ${discounts.size} discounts" }
-
-        if (ingest.dryRun) {
-            // In dry run mode, just update metrics
-            discounts.forEach { _ ->
-                metrics.discountsIngested.incrementAndGet()
-            }
-            return
-        }
-
-        try {
-            // TODO metrics are not accurate for failures within the batch, leaving this for now.
-            val batchResponse = discountService.createBatch(discounts)
-
-            // Process the response for each discount
-            batchResponse.results.forEachIndexed { index, result ->
-                val (_, itemData) = discountBatch[index]
-
-                when {
-                    result.success -> {
-                        metrics.discountsIngested.incrementAndGet()
-                    }
-
-                    result.alreadyApplied -> {
-                        metrics.discountsDeduplicated.incrementAndGet()
-                        val message = "Duplicate discount with composite key ${result.productId}-${result.discountId}"
-                        metrics.addErrorSample(
-                            itemData.fileName,
-                            itemData.lineNumber,
-                            message,
-                            MAX_ERROR_SAMPLES,
-                        )
-
-                        if (ingest.failFast) {
-                            metrics.discountsFailed.incrementAndGet()
-                            throw FailFastException(message)
-                        }
-                    }
-
-                    else -> {
-                        metrics.discountsFailed.incrementAndGet()
-                        val errorMessage = result.error ?: "Unknown error"
-                        metrics.addErrorSample(
-                            itemData.fileName,
-                            itemData.lineNumber,
-                            errorMessage,
-                            MAX_ERROR_SAMPLES,
-                        )
-
-                        if (ingest.failFast) {
-                            metrics.discountsFailed.incrementAndGet()
-                            throw FailFastException(errorMessage)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // If the batch request fails completely
-            log.error(e) { "Error processing discount batch of size ${discounts.size}: ${e.message}" }
-
-            // Mark all items in batch as failed
-            discountBatch.forEach { (_, itemData) ->
-                metrics.discountsFailed.incrementAndGet()
-                metrics.addErrorSample(
-                    itemData.fileName,
-                    itemData.lineNumber,
-                    "Batch processing error: ${e.message ?: "Unknown error"}",
-                    MAX_ERROR_SAMPLES,
-                )
-            }
-
-            if (ingest.failFast) {
-                metrics.discountsFailed.incrementAndGet()
-                throw FailFastException("Failed to process discount batch: ${e.message}")
-            }
         }
     }
 
@@ -594,12 +452,65 @@ class IngestService(
         val virtualThreadDispatcher = Dispatchers.IO.limitedParallelism(ingest.workers * 2)
 
         workerScope.launch(virtualThreadDispatcher + parentJob) {
+            // Buffer for collecting discount items within each worker
+            val discountBatch = mutableListOf<IngestEntityData>()
+
             for (data in channel) {
+                when (data.entity) {
+                    IngestEntity.PRODUCT -> {
+                        // Process products immediately (individual processing)
+                        processChannelItem(
+                            data = data,
+                            ingest = ingest,
+                            metrics = metrics,
+                            workerId = workerId,
+                        )
+                    }
+
+                    IngestEntity.DISCOUNT -> {
+                        // Collect discounts for batch processing
+                        discountBatch.add(data)
+
+                        // Process batch when it reaches chunk size
+                        if (discountBatch.size >= ingest.chunkSize) {
+                            // Create a batch item for processing
+                            val batchData =
+                                IngestEntityData(
+                                    entity = IngestEntity.DISCOUNT,
+                                    line = "", // Not used for batch processing
+                                    lineNumber = discountBatch.first().lineNumber, // Use first line number for batch
+                                    fileName = discountBatch.first().fileName,
+                                )
+
+                            processChannelItem(
+                                data = batchData,
+                                ingest = ingest,
+                                metrics = metrics,
+                                workerId = workerId,
+                                discountBatch = discountBatch.toList(),
+                            )
+                            discountBatch.clear()
+                        }
+                    }
+                }
+            }
+
+            // Process remaining discounts in batch if any
+            if (discountBatch.isNotEmpty()) {
+                val batchData =
+                    IngestEntityData(
+                        entity = IngestEntity.DISCOUNT,
+                        line = "", // Not used for batch processing
+                        lineNumber = discountBatch.first().lineNumber,
+                        fileName = discountBatch.first().fileName,
+                    )
+
                 processChannelItem(
-                    data = data,
+                    data = batchData,
                     ingest = ingest,
                     metrics = metrics,
                     workerId = workerId,
+                    discountBatch = discountBatch.toList(),
                 )
             }
         }
@@ -610,6 +521,7 @@ class IngestService(
         ingest: IngestionDto,
         metrics: IngestionMetrics,
         workerId: Int,
+        discountBatch: List<IngestEntityData>? = null,
     ) {
         val (entity, line, lineNumber, fileName) = data
         var attempt = 0
@@ -630,33 +542,56 @@ class IngestService(
                     }
 
                     IngestEntity.DISCOUNT -> {
-                        processDiscount(
-                            line = line,
-                            metrics = metrics,
-                            ingest = ingest,
-                            fileName = fileName,
-                            lineNumber = lineNumber,
-                            attempt = attempt,
-                        )
+                        if (discountBatch != null) {
+                            // Process discount batch
+                            processDiscountBatch(
+                                batch = discountBatch,
+                                ingest = ingest,
+                                metrics = metrics,
+                                attempt = attempt,
+                            )
+                        } else {
+                            // This should not happen in practice, but fallback for safety
+                            throw IllegalStateException("Discount processing requires a batch")
+                        }
                     }
                 }
                 success = true
             } catch (e: Exception) {
                 attempt++
                 if (attempt > ingest.retries) {
-                    handleProcessingFailure(
-                        entity = entity,
-                        metrics = metrics,
-                        exception = e,
-                        fileName = fileName,
-                        lineNumber = lineNumber,
-                        workerId = workerId,
-                        line = line,
-                        failFast = ingest.failFast,
-                        attempt = attempt,
-                    )
+                    if (discountBatch != null) {
+                        // Handle batch failure - apply to all items in batch
+                        discountBatch.forEach { batchItem ->
+                            handleProcessingFailure(
+                                entity = IngestEntity.DISCOUNT,
+                                metrics = metrics,
+                                exception = e,
+                                fileName = batchItem.fileName,
+                                lineNumber = batchItem.lineNumber,
+                                workerId = workerId,
+                                line = batchItem.line,
+                                failFast = ingest.failFast,
+                                attempt = attempt,
+                            )
+                        }
+                    } else {
+                        handleProcessingFailure(
+                            entity = entity,
+                            metrics = metrics,
+                            exception = e,
+                            fileName = fileName,
+                            lineNumber = lineNumber,
+                            workerId = workerId,
+                            line = line,
+                            failFast = ingest.failFast,
+                            attempt = attempt,
+                        )
+                    }
                 } else {
-                    log.warn { "Worker $workerId: Retry $attempt for $entity: $line" }
+                    val itemCount = discountBatch?.size ?: 1
+                    val itemType = if (discountBatch != null) "discount batch of $itemCount items" else entity.name
+                    log.warn { "Worker $workerId: Retry $attempt for $itemType" }
                 }
             }
         }
@@ -708,49 +643,83 @@ class IngestService(
         }
     }
 
-    private suspend fun processDiscount(
-        line: String,
-        metrics: IngestionMetrics,
+    private suspend fun processDiscountBatch(
+        batch: List<IngestEntityData>,
         ingest: IngestionDto,
-        fileName: String,
-        lineNumber: Int,
+        metrics: IngestionMetrics,
         attempt: Int,
     ) {
-        val parsed = json.decodeFromString(DiscountApiRequest.serializer(), line)
+        val parsed = batch.map { json.decodeFromString(DiscountApiRequest.serializer(), it.line) }
+
+        // Only increment parsed count on first attempt
         if (attempt == 0) {
-            metrics.discountsParsed.incrementAndGet()
+            metrics.discountsParsed.addAndGet(parsed.size)
         }
 
         try {
             if (!ingest.dryRun) {
-                val discountApplicationResponse = discountService.create(parsed)
-                if (discountApplicationResponse.applied && !discountApplicationResponse.alreadyApplied) {
-                    metrics.discountsIngested.incrementAndGet()
-                } else {
-                    metrics.discountsDeduplicated.incrementAndGet()
-                    val duplicationMessage =
-                        "duplicate discount with composite key ${parsed.productId}-${parsed.discountId}"
-                    metrics.addErrorSample(
-                        fileName,
-                        lineNumber,
-                        duplicationMessage,
-                        MAX_ERROR_SAMPLES,
-                    )
-                    if (ingest.failFast) {
-                        metrics.discountsFailed.incrementAndGet()
-                        throw FailFastException(duplicationMessage)
+                val batchResponse = discountService.createBatch(parsed)
+
+                // Process the response for each discount
+                batchResponse.results.forEachIndexed { index, result ->
+                    val itemData = batch[index]
+
+                    when {
+                        result.success -> {
+                            metrics.discountsIngested.incrementAndGet()
+                        }
+
+                        result.alreadyApplied -> {
+                            metrics.discountsDeduplicated.incrementAndGet()
+                            val message = "Duplicate discount with composite key ${result.productId}-${result.discountId}"
+                            metrics.addErrorSample(
+                                itemData.fileName,
+                                itemData.lineNumber,
+                                message,
+                                MAX_ERROR_SAMPLES,
+                            )
+
+                            if (ingest.failFast) {
+                                throw FailFastException(message)
+                            }
+                        }
+
+                        else -> {
+                            if (attempt == 0) {
+                                metrics.discountsFailed.incrementAndGet()
+                            }
+                            val errorMessage = result.error ?: "Unknown error"
+                            metrics.addErrorSample(
+                                itemData.fileName,
+                                itemData.lineNumber,
+                                errorMessage,
+                                MAX_ERROR_SAMPLES,
+                            )
+
+                            if (ingest.failFast) {
+                                throw FailFastException(errorMessage)
+                            }
+                        }
                     }
                 }
             }
-        } catch (e: ValidationErrorException) {
-            log.debug { "Discount validation error: ${e.message}" }
+        } catch (e: Exception) {
             if (attempt == 0) {
-                metrics.discountsFailed.incrementAndGet()
-            }
-            metrics.addErrorSample(fileName, lineNumber, e.message ?: "Validation error", MAX_ERROR_SAMPLES)
-            if (ingest.failFast) {
-                metrics.discountsFailed.incrementAndGet()
-                throw FailFastException("Discount validation error: ${e.message}")
+                batch.forEach { data ->
+                    handleProcessingFailure(
+                        entity = IngestEntity.DISCOUNT,
+                        metrics = metrics,
+                        exception = e,
+                        fileName = data.fileName,
+                        lineNumber = data.lineNumber,
+                        workerId = 0,
+                        line = data.line,
+                        failFast = ingest.failFast,
+                        attempt = attempt,
+                    )
+                }
+            } else {
+                log.warn { "Retry $attempt for discount batch of ${batch.size} items failed" }
             }
         }
     }

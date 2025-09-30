@@ -35,11 +35,6 @@ class DiscountService(
         }
     }
 
-    /**
-     * Process a batch of discounts in a single API call
-     * @param discounts The list of discount requests to process
-     * @return BatchDiscountApplicationResponse with details on successes and failures
-     */
     suspend fun createBatch(discounts: List<DiscountApiRequest>): BatchDiscountApplicationResponse {
         if (discounts.isEmpty()) {
             log.info { "No discounts to process in batch" }
