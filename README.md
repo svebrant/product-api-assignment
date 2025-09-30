@@ -9,6 +9,9 @@ On OSX install by (assuming you have homebrew installed)
 
 # Starting the project using docker-compose and Makefile
 
+Basic requirement for running the project is to have docker and make installed.
+Make can be installed on OSX with (assuming you are a user of homebrew)
+
 ```bash
 brew install make
 ```
@@ -60,6 +63,12 @@ If you prefer to run the services locally without docker
 The product service will be available at [localhost:8050](http://localhost:8050)
 The discount service will be available at [localhost:8060](http://localhost:8060)
 
+Note: Making requests requires an Authorization header with the following header, as per assignment spec
+
+```
+Authorization: Bearer secret-dev-token-please-change
+```
+
 # Implementation details
 
 The project is implemented in Kotlin using Ktor as the web framework as specified.
@@ -83,7 +92,8 @@ If a line is valid, we upsert the product into the database.
 For discount ingestion we read the contents of the file into a channel and then have a pool of workers.
 What is different here is that discounts are passed to the discount service over REST, which adds significant overhead.
 To mitigate this after having a working ingestion flow, the ingestion pipeline was changed to ingest in batches.
-This right now has led to metrics not being fully working as expected, and don't intend on spending more time on it.
+This right now has led to metrics not being fully working as expected for example, and don't intend on spending more
+time on it due to time constraints.
 
 Once the ingestion is complete, the ingestion status is updated to `COMPLETED`.
 
@@ -95,7 +105,7 @@ Ingestions can be controlled as per the assignment specification, e.g.
 ```json
 {
   "workers": 6,
-  "chunkSize": 15000,
+  "chunkSize": 7500,
   "mode": "ALL",
   "failFast": false,
   "retries": 2,
@@ -110,3 +120,7 @@ I have also added basic pageable APIs for both products and discounts for easier
 [localhost:8050/products?limit=100&offset=0&sortOrder=ASC](localhost:8050/products?limit=100&offset=0&sortOrder=ASC)
 
 [localhost:8060/discounts?limit=100&offset=0&sortOrder=ASC](localhost:8060/discounts?limit=100&offset=0&sortOrder=ASC)
+
+### Assignment deliverables
+
+Please see the [ARCHITECTURE.md](ARCHITECTURE.md) file for descriptions on the architecture and design decisions made.
