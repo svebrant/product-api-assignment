@@ -5,8 +5,6 @@
 * Docker - used to run the services in containers
 * Make - used to use the Makefile to build and run the project easily
 
-On OSX install by (assuming you have homebrew installed)
-
 # Starting the project using docker-compose and Makefile
 
 Basic requirement for running the project is to have docker and make installed.
