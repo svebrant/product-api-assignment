@@ -29,7 +29,7 @@ class DiscountService(
             repository
                 .find(productId, discountId, limit = limit, offset = offset, sortOrder = sortOrder)
                 .map { it.mapToResponse() }
-        log.info { "Found products: $result" }
+        log.info { "Found ${result.size} discounts" }
         return result
     }
 
